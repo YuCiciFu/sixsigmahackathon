@@ -1,6 +1,6 @@
 """Basic validation of generated long-form CSVs; intentionally permits edge-case status conflicts."""
 import csv, pathlib
-root=pathlib.Path(__file__).resolve().parents[1]/'data'
+root=pathlib.Path(__file__).resolve().parent
 for name in ('baseline','planted_shift','edge_case'):
     p=root/f'{name}.csv'
     with p.open(newline='') as f: rows=list(csv.DictReader(f))

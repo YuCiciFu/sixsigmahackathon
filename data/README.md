@@ -47,7 +47,7 @@ For real deployment, obtain the station registry (IDs, coordinates, capacity and
 
 ## Additional local checks
 
-After generation, run `python3 tests/validate_schema.py` and `python3 data/check_scenarios.py` from the repository root. The second command checks scenario dimensions, references, booleans, reason codes, offset timestamps, intentional edge conflicts/gaps, and day-11 return-p and I-MR signals against the first ten weekdays. It verifies KA-2 and KA-3 arithmetic and degenerate limits before applying them. This is independent fixture validation; the application loader and simulation engine are not present on this branch and are not verified by these checks.
+After generation, run `python3 data/validate_schema.py` and `python3 data/check_scenarios.py` from the repository root. The second command checks scenario dimensions, references, booleans, reason codes, offset timestamps, intentional edge conflicts/gaps, and day-11 return-p and I-MR signals against the first ten weekdays. It verifies KA-2 and KA-3 arithmetic and degenerate limits before applying them. This is independent fixture validation; the application loader and simulation engine are not present on this branch and are not verified by these checks.
 
 `data/run_h02.command` regenerates (overwriting the three CSVs) and runs both validators. It uses Rscript from PATH, or an executable specified with RSCRIPT_BIN. In the original local task workspace it also recognizes the isolated runtime at ../../work/r-runtime/bin/Rscript relative to the repository. No runtime is bundled in this repository.
 
@@ -57,3 +57,5 @@ Validation note for this seed: the planted return-p chart signals on weekdays 9 
 ## H-03 audit of published b07d1a3
 
 See [audit/README.md](audit/README.md) and the accompanying daily result tables for a version-pinned recomputation with the merged H-03 functions. The original timestamps use -0400, which H-03 rejects; the audit normalizes offsets in memory only. Both large scenarios have p-chart signals before the engineered intervention, and the baseline scenario is not in control on its p charts. The previous Python checker is a limited fixture check and is not authoritative for H-03 control signals (it omitted lower-limit and run-rule signals). Full H-02 acceptance remains open. The original generator and CSVs are unchanged.
+
+The H-02 schema validator is [validate_schema.py](validate_schema.py). Independent arithmetic examples are documented in [expected_results.md](expected_results.md); measured scenario results and H-03 compatibility findings are in [audit/README.md](audit/README.md). These H-02 files were moved from tests/ with explicit user approval; H-03 tests and fixtures were not changed.

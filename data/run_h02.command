@@ -11,6 +11,6 @@ if ! command -v "$rscript_bin" >/dev/null 2>&1; then
   fi
 fi
 "$rscript_bin" data/generate_data.R
-python3 tests/validate_schema.py
+python3 data/validate_schema.py
 python3 data/check_scenarios.py
 print "Generation and validation passed."
