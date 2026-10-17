@@ -134,3 +134,176 @@ plot_mr <- function(res, dates, title) {
                           lcl = NA_real_, ooc = mr_ooc),
                dates, "moving range (percentage points)", title)
 }
+
+# c chart (qc.R c_chart result) -> plot
+plot_c <- function(res, dates, ylab, title, ooc_label = "out of control", ok_label = "in control") {
+  d <- res$data
+  plot_control(data.frame(x = d$subgroup, y = d$count, center = d$center, ucl = d$ucl,
+                          lcl = d$lcl, ooc = d$out_of_control),
+               dates, ylab, title, ooc_label = ooc_label, ok_label = ok_label)
+}
+
+# X-bar chart (qc.R xbar_r_chart result) -> plot. A subgroup is red when it has a rule 1 or 4 signal.
+plot_xbar <- function(res, dates, ylab, title) {
+  d <- res$data
+  plot_control(data.frame(x = d$subgroup, y = d$xbar, center = d$x_center, ucl = d$x_ucl,
+                          lcl = d$x_lcl, ooc = d$rule1_x | d$rule4_x),
+               dates, ylab, title)
+}
+
+# R chart (qc.R xbar_r_chart result) -> plot. Rule 1 only.
+plot_r <- function(res, dates, ylab, title) {
+  d <- res$data
+  plot_control(data.frame(x = d$subgroup, y = d$range, center = d$r_center, ucl = d$r_ucl,
+                          lcl = d$r_lcl, ooc = d$rule1_r),
+               dates, ylab, title)
+}
+
+# Histogram of the individual response times used, with the centre and any spec limit the
+# operator typed (dashed red, labelled as the operator's input).
+plot_response_hist <- function(x, xbarbar = NA_real_, usl = NA_real_, lsl = NA_real_) {
+  g <- ggplot2::ggplot(data.frame(x = x), ggplot2::aes(x)) +
+    ggplot2::geom_histogram(bins = max(5, min(20, length(unique(x)))), fill = "#4575b4",
+                            colour = "white") +
+    ggplot2::labs(title = "Response times in the subgroups", x = "response time (minutes)",
+                  y = "tasks",
+                  caption = "Green = X-double-bar. Dashed red = USL / LSL typed by the operator (an input, not a measured spec).") +
+    ggplot2::theme_minimal()
+  if (!is.na(xbarbar)) g <- g + ggplot2::geom_vline(xintercept = xbarbar, colour = "darkgreen")
+  specs <- c(usl, lsl)
+  specs <- specs[!is.na(specs)]
+  if (length(specs) > 0) g <- g + ggplot2::geom_vline(xintercept = specs, colour = "red", linetype = "dashed")
+  g
+}
+
+# Kaplan-Meier step curve S(t) with its 95% interval band and censoring ticks (+).
+# d = prep.R km_plot_data(): d$curve (t, surv, lo, hi on whole minutes), d$ticks (t, surv).
+# Whole-minute steps: each value holds on [m, m+1), so the curve and band are drawn as exact steps.
+plot_km <- function(d, title, caption) {
+  cv <- d$curve
+  steps <- data.frame(t = c(rbind(cv$t, cv$t + 1)), surv = rep(cv$surv, each = 2),
+                      lo = rep(cv$lo, each = 2), hi = rep(cv$hi, each = 2))
+  g <- ggplot2::ggplot(steps, ggplot2::aes(t, surv)) +
+    ggplot2::geom_ribbon(ggplot2::aes(ymin = lo, ymax = hi), fill = "#4575b4", alpha = 0.2, na.rm = TRUE) +
+    ggplot2::geom_line(colour = "#08519c", linewidth = 0.8, na.rm = TRUE) +
+    ggplot2::scale_y_continuous(limits = c(0, 1)) +
+    ggplot2::labs(title = title, x = "minutes after 07:00 (station usable at 07:00)",
+                  y = "S(t): share of station-days with no failure yet", caption = caption) +
+    ggplot2::theme_minimal()
+  if (nrow(d$ticks) > 0) {
+    g <- g + ggplot2::geom_point(data = d$ticks, ggplot2::aes(t, surv), shape = 3, size = 2.5,
+                                 colour = "black", inherit.aes = FALSE)
+  }
+  g
+}
+
+# Per-seed paired differences for the primary metric: one point per seed, the mean (green) and its
+# confidence interval (dashed blue band edges; NA = not drawn), zero = no difference.
+# d = metric(none) - metric(reactive), so points above 0 favour the reactive policy.
+# ci_low / ci_high / mean_d come from sim.R paired_table; this function only draws.
+plot_paired_diff <- function(d, seeds, mean_d, ci_low, ci_high, ci_text, ylab, title) {
+  df <- data.frame(seed = seeds, d = d)
+  g <- ggplot2::ggplot(df, ggplot2::aes(seed, d)) +
+    ggplot2::geom_hline(yintercept = 0, colour = "grey40") +
+    ggplot2::geom_point(size = 2.5, colour = "#2166ac", na.rm = TRUE) +
+    ggplot2::labs(title = title, x = "seed", y = ylab, caption = ci_text) +
+    ggplot2::theme_minimal()
+  if (!is.na(mean_d)) g <- g + ggplot2::geom_hline(yintercept = mean_d, colour = "darkgreen")
+  if (!is.na(ci_low) && !is.na(ci_high)) {
+    g <- g + ggplot2::geom_hline(yintercept = c(ci_low, ci_high), colour = "#2166ac", linetype = "dashed")
+  }
+  g
+}
+
+# The three pairwise primary differences side by side (H-15): one panel per pair, one point per seed,
+# the mean (green) and the Bonferroni interval (dashed blue; NA = not drawn), zero = no difference.
+# d = metric(first policy) - metric(second policy), so points above 0 favour the SECOND policy.
+# diffs = list named by pair of per-seed differences; rows = the primary rows of sim.R paired_tables
+# (columns pair, mean_d, ci_low, ci_high). This function only draws.
+plot_paired_diffs <- function(diffs, seeds, rows, ylab, title, caption) {
+  pairs <- names(diffs)
+  df <- data.frame(seed = rep(seeds, length(pairs)), d = unlist(diffs, use.names = FALSE),
+                   pair = factor(rep(pairs, each = length(seeds)), levels = pairs))
+  rows <- rows[match(pairs, rows$pair), ]
+  rows$pair <- factor(rows$pair, levels = pairs)
+  g <- ggplot2::ggplot(df, ggplot2::aes(seed, d)) +
+    ggplot2::geom_hline(yintercept = 0, colour = "grey40") +
+    ggplot2::geom_point(size = 2, colour = "#2166ac", na.rm = TRUE) +
+    ggplot2::facet_wrap(~pair, nrow = 1) +
+    ggplot2::labs(title = title, x = "seed", y = ylab, caption = caption) +
+    ggplot2::theme_minimal()
+  has_mean <- !is.na(rows$mean_d)
+  if (any(has_mean)) {
+    g <- g + ggplot2::geom_hline(ggplot2::aes(yintercept = mean_d), data = rows[has_mean, ], colour = "darkgreen")
+  }
+  has_ci <- !is.na(rows$ci_low) & !is.na(rows$ci_high)
+  if (any(has_ci)) {
+    g <- g + ggplot2::geom_hline(ggplot2::aes(yintercept = ci_low), data = rows[has_ci, ], colour = "#2166ac", linetype = "dashed") +
+      ggplot2::geom_hline(ggplot2::aes(yintercept = ci_high), data = rows[has_ci, ], colour = "#2166ac", linetype = "dashed")
+  }
+  g
+}
+
+# Risk of the top stations: P(at least one unusable minute within the horizon), rent and return side
+# by side, with +/- 1 simulation SE as a thin bar. d = prep.R forecast_plot_data().
+# When the day bootstrap was run (lo / hi not NA) the 2.5-97.5% parameter range (iii) is added as a wide
+# orange bracket, distinct from the thin black SE whisker (ii); the caption says which is which.
+plot_forecast_risk <- function(d, title, caption) {
+  d$station <- factor(d$station, levels = rev(unique(d$station)))
+  g <- ggplot2::ggplot(d, ggplot2::aes(station, p, fill = type)) +
+    ggplot2::geom_col(position = ggplot2::position_dodge(width = 0.8), width = 0.7) +
+    ggplot2::geom_errorbar(ggplot2::aes(ymin = pmax(0, p - se), ymax = pmin(1, p + se)),
+                           position = ggplot2::position_dodge(width = 0.8), width = 0.25)
+  if ("lo" %in% names(d) && any(!is.na(d$lo))) {
+    g <- g + ggplot2::geom_errorbar(ggplot2::aes(ymin = lo, ymax = hi), data = d[!is.na(d$lo), ],
+                                    position = ggplot2::position_dodge(width = 0.8), width = 0.6,
+                                    colour = "#ff7f00", linewidth = 0.9)
+  }
+  g +
+    ggplot2::coord_flip() +
+    ggplot2::scale_y_continuous(limits = c(0, 1)) +
+    ggplot2::scale_fill_manual(values = c("rent-unusable" = "#d73027", "return-unusable" = "#4575b4"), name = NULL) +
+    ggplot2::labs(title = title, x = "station", y = "probability of at least one unusable minute", caption = caption) +
+    ggplot2::theme_minimal() + ggplot2::theme(legend.position = "bottom")
+}
+
+# Qualitative fault tree (top event -> OR gate -> three actions -> logged-reason leaves).
+# ft = faulttree.R fault_tree() result. Drawing only: counts and shares come from there.
+plot_fault_tree <- function(ft, title) {
+  pct <- function(s, n) ifelse(is.na(s), paste0("n/a (", n, ")"), paste0(sprintf("%.0f", 100 * s), "% (", n, ")"))
+  acts <- ft$by_action
+  acts$y <- c(3, 2, 1) * 2                              # rebalancing on top, data check at the bottom
+  acts$label <- paste0(acts$action, "\n", pct(acts$share, acts$count))
+  top_label <- paste0(if (ft$type == "rent") "RENT FAILED" else "RETURN FAILED", "\n", ft$n_failed, " / ", ft$n, " failed")
+  nodes <- rbind(data.frame(x = -0.5, y = 4, label = top_label, kind = "top event"),
+                 data.frame(x = 2, y = acts$y, label = acts$label, kind = "action"))
+  gate <- data.frame(x = 1, y = 4, label = "OR", kind = "gate")
+  lv <- ft$tree
+  if (nrow(lv) > 0) {
+    lv$y <- acts$y[match(lv$action, acts$action)]
+    lv$k <- stats::ave(seq_len(nrow(lv)), lv$action, FUN = seq_along)
+    lv$y <- lv$y + 0.45 * (lv$k - 1) - 0.2 * (stats::ave(lv$k, lv$action, FUN = max) - 1)
+    leaves <- data.frame(x = 4, y = lv$y, label = paste0(lv$leaf, "\n", pct(lv$share, lv$count)), kind = "logged reason")
+    edges <- data.frame(x = 2.3, xend = 3.68, y = acts$y[match(lv$action, acts$action)], yend = lv$y)
+  } else {
+    leaves <- data.frame(x = numeric(0), y = numeric(0), label = character(0), kind = character(0))
+    edges <- data.frame(x = numeric(0), xend = numeric(0), y = numeric(0), yend = numeric(0))
+  }
+  edges <- rbind(edges, data.frame(x = 0.1, xend = 0.85, y = 4, yend = 4),
+                 data.frame(x = 1.15, xend = 1.4, y = 4, yend = 4),
+                 data.frame(x = 1.4, xend = 1.4, y = min(acts$y), yend = max(acts$y)),
+                 data.frame(x = 1.4, xend = 1.7, y = acts$y, yend = acts$y))
+  all_nodes <- rbind(nodes, gate, leaves)
+  ggplot2::ggplot() +
+    ggplot2::geom_segment(data = edges, ggplot2::aes(x = x, xend = xend, y = y, yend = yend), colour = "grey40") +
+    ggplot2::geom_label(data = all_nodes, ggplot2::aes(x = x, y = y, label = label, fill = kind),
+                        size = 3.2, linewidth = 0.2, lineheight = 0.95) +
+    ggplot2::scale_fill_manual(values = c("top event" = "#fdd0a2", gate = "#ffffff", action = "#c6dbef",
+                                          "logged reason" = "#e5f5e0"), guide = "none") +
+    # wide limits so the boxes are not clipped in a half-width card
+    ggplot2::scale_x_continuous(limits = c(-1.3, 5.3)) +
+    ggplot2::labs(title = title, caption = "Qualitative: shares of failed attempts in the scope; no probabilities.") +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.title = ggplot2::element_text(face = "bold"),
+                   plot.caption = ggplot2::element_text(hjust = 0), plot.caption.position = "plot")
+}

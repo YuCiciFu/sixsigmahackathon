@@ -17,6 +17,12 @@
 #   7. data source            builtin_scenarios, default_scenario_path
 #   8. data health            table_health, table_block_message, issue_summary, issue_detail,
 #                             signal_label, format_p, as_whole_numbers
+#   8b. tier 2 tables         onset_window_table, c_chart_table, xbar_r_table, capability_table
+#   9. simulation display    SIM_METRIC_LABELS, paired_table_display, policy_summary_display
+#  10. Kaplan-Meier display  km_days, km_counts_table, km_horizon_table, km_mean_table,
+#                            km_excluded_table, km_plot_data (needs app/survival.R sourced)
+#  11. Now forecast display  forecast_p_text, forecast_table_display, forecast_boot_display, forecast_transit_display,
+#                            forecast_rate_display, forecast_plot_data (numbers from app/forecast.R)
 
 APP_TZ <- "America/New_York"
 STATE_LEVELS <- c("rent-unusable", "return-unusable", "rent- and return-unusable",
@@ -347,10 +353,10 @@ issue_detail <- function(iss, max_rows = 200) {
 # are likely too narrow, so a point beyond them is a prompt to investigate, not a confirmed
 # special cause, and a point inside them is only "within limits".
 # ooc: TRUE / FALSE / NA (not assessed); overdispersed: the dispersion warning (TRUE/FALSE/NA).
-signal_label <- function(ooc, overdispersed) {
+signal_label <- function(ooc, overdispersed, model = "binomial") {
   warn <- isTRUE(overdispersed)
   ifelse(is.na(ooc), "not assessed",
-         ifelse(ooc, if (warn) "beyond binomial limit (investigate; not a confirmed special cause)" else "OUT OF CONTROL",
+         ifelse(ooc, if (warn) paste0("beyond ", model, " limit (investigate; not a confirmed special cause)") else "OUT OF CONTROL",
                 if (warn) "within limits" else "in control"))
 }
 
@@ -364,4 +370,388 @@ format_p <- function(p) {
 as_whole_numbers <- function(df, cols) {
   for (col in intersect(cols, names(df))) df[[col]] <- as.integer(round(df[[col]]))
   df
+}
+
+# ---------------------------------------------------------------- 8b. tier 2 inputs and tables (H-11)
+# Counting rows and shaping tables only; the statistics are in qc.R.
+
+# Anomaly onsets per date on the fixed station set (qc.R count_onsets). Output: window, onsets.
+onset_window_table <- function(grids, fixed_ids, dates) {
+  onsets <- vapply(dates, function(d) count_onsets(grids[[d]], fixed_ids), numeric(1))
+  data.frame(window = dates, onsets = unname(onsets), stringsAsFactors = FALSE)
+}
+
+# c chart table: one row per included window.
+# w = included rows of window_table (window, known, coverage), counts = onsets in the same
+# order, res = qc.R c_chart result.
+c_chart_table <- function(w, res) {
+  d <- res$data
+  data.frame(window = w$window, onsets = as.integer(d$count), known_min = w$known,
+             coverage_pct = round(100 * w$coverage, 1), centre = round(d$center, 3),
+             UCL = round(d$ucl, 3), LCL = round(d$lcl, 3),
+             signal = signal_label(d$out_of_control, res$dispersion$warning, model = "Poisson"),
+             stringsAsFactors = FALSE)
+}
+
+# X-bar/R table: the 3 response times, mean, range, limits and the signal of each subgroup.
+# sub = qc.R response_subgroups result, res = qc.R xbar_r_chart result.
+xbar_r_table <- function(sub, res) {
+  d <- res$data
+  v <- sub$values
+  data.frame(window = sub$windows, time_1_min = v[, 1], time_2_min = v[, 2], time_3_min = v[, 3],
+             mean_min = round(d$xbar, 3), range_min = round(d$range, 3),
+             xbar_LCL = round(d$x_lcl, 3), xbar_UCL = round(d$x_ucl, 3),
+             R_LCL = round(d$r_lcl, 3), R_UCL = round(d$r_ucl, 3),
+             signal = ifelse(is.na(d$out_of_control), "not assessed",
+                             ifelse(d$out_of_control, "OUT OF CONTROL", "in control")),
+             stringsAsFactors = FALSE)
+}
+
+# Capability result (qc.R capability_indices) -> one row per index, with the reason when NA.
+capability_table <- function(cap) {
+  num <- function(x) if (is.na(x)) NA_real_ else round(x, 3)
+  data.frame(
+    index = c("Cpu", "Cpl", "Cp", "Cpk"),
+    value = c(num(cap$cpu), num(cap$cpl), num(cap$cp), num(cap$cpk)),
+    reason_if_not_computed = c(cap$cpu_note, cap$cpl_note, cap$cp_note, cap$cpk_note),
+    stringsAsFactors = FALSE)
+}
+
+# ---------------------------------------------------------------- 9. simulation display
+# Wording and rounding only; every number comes from app/sim.R.
+
+SIM_METRIC_LABELS <- c(
+  either_min = "Either-unusable station-minutes (PRIMARY)",
+  fail_prop = "Failed attempts, percentage points of all attempts",
+  van_km = "Van distance, km (estimated, not a road route)",
+  recovery_min = "Recovery time, minutes from failure onset to usable")
+
+# Paired-difference table (sim.R paired_tables) -> readable table. d = metric(first policy) - metric(second
+# policy) of the `pair` column, so a positive difference means the SECOND policy is better.
+# The failed share is shown in percentage points (x 100). Numbers are printed as text with 4
+# significant digits, so a small difference (e.g. 0.01318 pp) is not rounded to "0.00".
+paired_table_display <- function(tbl) {
+  scale <- ifelse(tbl$metric == "fail_prop", 100, 1)
+  num <- function(x) ifelse(is.na(x), NA_character_,
+                            formatC(signif(x * scale, 4), format = "fg", digits = 4))
+  out <- data.frame(
+    metric = unname(SIM_METRIC_LABELS[tbl$metric]), role = tbl$role,
+    seeds_used = as.integer(tbl$n), mean_difference = num(tbl$mean_d),
+    CI_low = num(tbl$ci_low), CI_high = num(tbl$ci_high),
+    CI_level = paste0(format(round(tbl$ci_level_pct, 3), nsmall = 0), "%"),
+    label = tbl$label, note = tbl$note, stringsAsFactors = FALSE)
+  if ("pair" %in% names(tbl)) out <- cbind(data.frame(pair = tbl$pair, stringsAsFactors = FALSE), out)
+  out
+}
+
+# Per-policy means (sim.R compare_policies$summary) -> readable table; the failed share is in percent.
+policy_summary_display <- function(s) {
+  data.frame(
+    policy = ifelse(s$policy == "none", "none (no rebalancing)", s$policy),
+    seeds = as.integer(s$seeds),
+    # 2 decimals, like the paired table, so the two means visibly differ by the mean difference
+    mean_either_unusable_min = round(s$either_min, 2),
+    mean_failed_attempts_pct = round(100 * s$fail_prop, 2),
+    mean_van_km = round(s$van_km, 2),
+    mean_van_tasks = round(s$tasks, 2),
+    mean_recovery_min = round(s$recovery_min, 2),
+    seeds_with_a_recovery = as.integer(s$recovery_seeds),
+    stringsAsFactors = FALSE)
+}
+
+# ---------------------------------------------------------------- 10. Kaplan-Meier display
+# Wording, rounding and picking days only; every number comes from app/survival.R.
+
+KM_FAILURE_LABELS <- c(either = "either-unusable (rent or return)", rent = "rent-unusable", `return` = "return-unusable")
+
+# Which weekdays the History panel uses: "all" weekdays, or those up to and including `chosen`.
+km_days <- function(dates, scope = "all", chosen = NULL) {
+  if (identical(scope, "upto") && !is.null(chosen) && nzchar(chosen)) dates[dates <= chosen] else dates
+}
+
+# "0.123 [0.100, 0.150]" or "0.123 (interval n/a)"; NA estimate -> "n/a".
+km_interval_text <- function(est, lo, hi, digits = 3) {
+  f <- function(x) formatC(x, format = "f", digits = digits)
+  ifelse(is.na(est), "n/a",
+         ifelse(is.na(lo) | is.na(hi), paste0(f(est), " (95% interval n/a)"),
+                paste0(f(est), "  [", f(lo), ", ", f(hi), "]")))
+}
+
+# Counts table: what went into the estimate (station-days, events, censored, excluded at 07:00).
+km_counts_table <- function(h) {
+  c <- h$counts
+  data.frame(
+    item = c("weekdays used", "station-days usable at 07:00 (n)", "failures (events)",
+             "censored at 10:00 (never unusable)", "censored at an unknown gap (start of the gap)",
+             "left out: 07:00 unknown or stale", "left out: already unusable at 07:00"),
+    count = as.integer(c(c$days, c$n, c$events, c$cens_end, c$cens_gap, c$excl_unknown, c$excl_unusable)),
+    stringsAsFactors = FALSE)
+}
+
+# F(10/20/30) with 95% Greenwood (log-log) intervals; the reason when there is none.
+km_horizon_table <- function(s) {
+  h <- s$horizons
+  data.frame(
+    `minutes after a usable 07:00` = as.integer(h$t),
+    `F(t) = share failed by t  [95% CI]` = km_interval_text(h$F, h$F_low, h$F_high),
+    `S(t) = still unfailed` = ifelse(is.na(h$surv), "n/a", formatC(h$surv, format = "f", digits = 3)),
+    reason_if_missing = h$note,
+    check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+# RMST and MTTF, each with its reason when it is not reported.
+km_mean_table <- function(s) {
+  num <- function(x) if (is.na(x)) "n/a" else paste(formatC(x, format = "f", digits = 2), "min")
+  data.frame(
+    measure = c(paste0("RMST to ", s$rmst_tau, " min (restricted mean time to first failure)"),
+                "MTTF (mean time to first failure, full area under the curve)"),
+    value = c(num(s$rmst), num(s$mttf)),
+    reason_if_not_reported = c(s$rmst_note, s$mttf_note),
+    stringsAsFactors = FALSE)
+}
+
+# Station-days left out at 07:00, by reason (one row per reason; none -> a note row).
+km_excluded_table <- function(h) {
+  c <- h$counts
+  data.frame(reason = c("unknown or stale at 07:00", "unusable at 07:00 (already empty, full or switched off)"),
+             station_days = c(c$excl_unknown, c$excl_unusable), stringsAsFactors = FALSE)
+}
+
+# Curve data for plot_km(): S and its interval on every minute 0..tau (a step on [m, m+1)),
+# plus one censoring tick per distinct censored time. Times are whole minutes.
+km_plot_data <- function(h, xmax = SURVIVAL_TAU) {
+  s <- h$summary
+  grid_t <- 0:xmax
+  at <- km_at(s$fit, grid_t)
+  curve <- data.frame(t = grid_t, surv = at$surv, lo = at$ci_low, hi = at$ci_high)
+  cens <- h$obs[h$obs$event == 0 & h$obs$time <= xmax, ]
+  ticks <- if (nrow(cens) == 0) data.frame(t = numeric(0), surv = numeric(0)) else {
+    tt <- sort(unique(cens$time))
+    data.frame(t = tt, surv = km_at(s$fit, tt)$surv)
+  }
+  list(curve = curve, ticks = ticks[!is.na(ticks$surv), ])
+}
+
+# ---------------------------------------------------------------- 11. Now forecast display (H-13)
+# Wording and rounding only; every number comes from app/forecast.R.
+
+# "0.264 (SE 0.003)"; an NA probability -> "n/a".
+forecast_p_text <- function(p, se) {
+  ifelse(is.na(p), "n/a", paste0(formatC(p, format = "f", digits = 3), " (SE ", formatC(se, format = "f", digits = 3), ")"))
+}
+
+# One row per station, sorted as forecast_now() sorted it (highest 30-minute risk first).
+# Columns: station, bikes / docks at t0, snapshot age, P(rent-unusable) and P(return-unusable) for
+# each horizon with the simulation SE, and the flags or the reason there is no forecast.
+forecast_table_display <- function(f) {
+  tb <- f$table
+  out <- data.frame(station = tb$station_id,
+                    `bikes / docks at t0` = ifelse(tb$known, paste(tb$bikes, "/", tb$docks), "unknown"),
+                    `snapshot age (min)` = ifelse(tb$known, formatC(tb$age, format = "f", digits = 1), "n/a"),
+                    check.names = FALSE, stringsAsFactors = FALSE)
+  for (type in c("rent", "return")) {
+    for (h in f$horizons) {
+      label <- paste0("P(", type, "-unusable) within ", h, " min", if (isTRUE(f$past_10[[as.character(h)]])) " *" else "")
+      out[[label]] <- forecast_p_text(tb[[paste0("p_", type, "_", h)]], tb[[paste0("se_", type, "_", h)]])
+    }
+  }
+  if (isTRUE(f$bootstrap$ok)) {            # step 5b: the 30-minute parameter range (details table has 10/20/30)
+    h <- max(f$horizons)
+    for (type in c("rent", "return")) {
+      label <- paste0("(iii) parameter uncertainty, ", type, "-unusable within ", h, " min (day bootstrap, B = ",
+                      f$bootstrap$B, " sets): 2.5-97.5%")
+      out[[label]] <- forecast_range_text(tb[[paste0("boot_lo_", type, "_", h)]], tb[[paste0("boot_hi_", type, "_", h)]])
+    }
+  }
+  out$`flags / reason` <- ifelse(tb$reason != "", tb$reason, tb$flags)
+  out
+}
+
+# "0.985 to 1.000"; an NA range -> "n/a".
+forecast_range_text <- function(lo, hi) {
+  ifelse(is.na(lo) | is.na(hi), "n/a", paste(formatC(lo, format = "f", digits = 3), "to", formatC(hi, format = "f", digits = 3)))
+}
+
+# Details of the day bootstrap for every horizon: the 2.5-97.5% range (iii) next to the 5a point
+# estimate and its simulation SE (ii), and the mean simulation SE inside the bootstrap sets (so a reader
+# sees how much of the range is simulation noise). NULL-safe: a message table when there is no range.
+forecast_boot_display <- function(f) {
+  b <- f$bootstrap
+  if (is.null(b)) return(data.frame(note = "Not computed: tick the day bootstrap and run the forecast again."))
+  if (!isTRUE(b$ok)) return(data.frame(note = paste0("Not available: ", b$reason, ".")))
+  tb <- f$table
+  tb <- tb[!is.na(tb$p_rent_10), ]
+  out <- data.frame(station = tb$station_id, stringsAsFactors = FALSE)
+  for (type in c("rent", "return")) {
+    for (h in f$horizons) {
+      out[[paste0(type, " ", h, " min: 5a estimate (ii) SE")]] <-
+        forecast_p_text(tb[[paste0("p_", type, "_", h)]], tb[[paste0("se_", type, "_", h)]])
+      out[[paste0(type, " ", h, " min: (iii) 2.5-97.5%")]] <-
+        forecast_range_text(tb[[paste0("boot_lo_", type, "_", h)]], tb[[paste0("boot_hi_", type, "_", h)]])
+      out[[paste0(type, " ", h, " min: mean SE inside sets")]] <-
+        formatC(tb[[paste0("boot_mean_se_", type, "_", h)]], format = "f", digits = 3)
+    }
+  }
+  out
+}
+
+# The in-transit van tasks, for display.
+forecast_transit_display <- function(f) {
+  it <- f$in_transit
+  if (nrow(it) == 0) return(data.frame(note = "No van task is in transit at t0 (assigned by t0 and not yet completed)."))
+  data.frame(task = it$task_id, from = it$source, to = it$destination, bikes = it$planned,
+             `assigned at` = format(it$assigned_at, "%H:%M", tz = APP_TZ),
+             `estimated arrival (min after t0)` = round(it$eta_min, 1),
+             counted = ifelse(it$known_destination, "yes", "no: destination not forecast"),
+             check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+# The mean bin rates (attempts per station-minute, 12 bins) of the stations used, for display.
+forecast_rate_display <- function(f) {
+  if (is.null(f$rates)) return(data.frame(note = "No rates: nothing could be estimated."))
+  r <- f$rates
+  bins <- sprintf("%02d:%02d", 7 + ((seq_len(dim(r)[3]) - 1) * 15) %/% 60, ((seq_len(dim(r)[3]) - 1) * 15) %% 60)
+  data.frame(`15-min bin starts` = bins,
+             `rent, network mean (per station-min)` = round(apply(r[, "rent", , drop = FALSE], 3, mean), 4),
+             `return, network mean (per station-min)` = round(apply(r[, "return", , drop = FALSE], 3, mean), 4),
+             check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+# Top stations by the larger of their 30-minute rent and return risk: long table for the plot.
+forecast_plot_data <- function(f, top = 10) {
+  h <- max(f$horizons)
+  tb <- f$table[!is.na(f$table[[paste0("p_rent_", h)]]), ]
+  if (nrow(tb) == 0) return(NULL)
+  worst <- pmax(tb[[paste0("p_rent_", h)]], tb[[paste0("p_return_", h)]])
+  tb <- head(tb[order(-worst, tb$station_id, method = "radix"), ], top)
+  col <- function(name) if (name %in% names(tb)) tb[[name]] else rep(NA_real_, nrow(tb))   # NA without the bootstrap
+  rbind(data.frame(station = tb$station_id, type = "rent-unusable", p = tb[[paste0("p_rent_", h)]], se = tb[[paste0("se_rent_", h)]],
+                   lo = col(paste0("boot_lo_rent_", h)), hi = col(paste0("boot_hi_rent_", h))),
+        data.frame(station = tb$station_id, type = "return-unusable", p = tb[[paste0("p_return_", h)]], se = tb[[paste0("se_return_", h)]],
+                   lo = col(paste0("boot_lo_return_", h)), hi = col(paste0("boot_hi_return_", h))))
+}
+
+# ---------------------------------------------------------------- 12. Availability and reliability display (H-16)
+# Wording, rounding and choosing stations only; every number comes from app/reliability.R.
+
+# Station ids of one region (stations table column `region`), in the order of the table.
+region_station_ids <- function(stations, region) stations$station_id[stations$region %in% region]
+
+# Default k for k-out-of-n: half of the stations, rounded up (a demo choice).
+default_k <- function(n) max(1L, as.integer(ceiling(n / 2)))
+
+# "0.400 (2/5)" or "n/a"
+reliability_share_text <- function(value, hold, n) {
+  ifelse(is.na(value), "n/a", paste0(formatC(value, format = "f", digits = 3), " (", hold, "/", n, ")"))
+}
+
+# One row per structure. `results` is a named list of reliability_summary() outputs (names = the
+# structure descriptions shown to the user); `rules` the condition in words, same names.
+reliability_display <- function(results, rules) {
+  one <- function(name) {
+    r <- results[[name]]
+    data.frame(
+      structure = name,
+      condition = rules[[name]],
+      `eligible minutes` = as.integer(r$avail_n),
+      availability = reliability_share_text(r$availability, r$avail_hold, r$avail_n),
+      `independence formula (contrast only)` = ifelse(is.na(r$independence), "n/a", formatC(r$independence, format = "f", digits = 3)),
+      tau = paste(r$tau, "min"),
+      `reliability R(tau)` = reliability_share_text(r$reliability, r$rel_hold, r$rel_n),
+      `eligible start minutes` = as.integer(r$rel_n),
+      `reason if n/a` = unique(c(r$avail_reason, r$rel_reason)[nzchar(c(r$avail_reason, r$rel_reason))]) |>
+        paste(collapse = "; "),
+      check.names = FALSE, stringsAsFactors = FALSE)
+  }
+  do.call(rbind, lapply(names(results), one))
+}
+
+# ---------------------------------------------------------------- 13. Diagnosis display (H-17)
+# Scope and wording only; every number comes from app/faulttree.R.
+
+# Attempts that fall inside the 07:00-10:00 window of the given dates (one date or all weekdays).
+scope_attempts <- function(attempts, dates, start = "07:00", end = "10:00", tz = APP_TZ) {
+  if (length(dates) == 0) return(attempts[0, ])
+  secs <- as.numeric(attempts$timestamp)
+  keep <- rep(FALSE, length(secs))
+  for (d in dates) {
+    b <- window_bounds(d, start, end, tz)
+    keep <- keep | (!is.na(secs) & secs >= as.numeric(b$start) & secs < as.numeric(b$end))
+  }
+  attempts[keep, ]
+}
+
+# Stack the day grids of the chosen dates into one grid (station + minute is unique across days).
+pooled_grid <- function(grids, dates) {
+  if (length(dates) == 0) return(NULL)
+  do.call(rbind, unname(grids[dates]))
+}
+
+# "60.0% (6)" or "n/a" (a share that is not defined).
+share_count_text <- function(share, count) {
+  ifelse(is.na(share), paste0("n/a (", count, ")"), paste0(sprintf("%.1f", 100 * share), "% (", count, ")"))
+}
+
+# Action table: counts and shares of failed attempts after the contradiction rule, with the logged view.
+fault_action_display <- function(ft) {
+  data.frame(action = ft$by_action$action,
+             `as logged (before the status rule)` = share_count_text(ft$logged_by_action$share, ft$logged_by_action$count),
+             `after the status rule` = share_count_text(ft$by_action$share, ft$by_action$count),
+             check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+# Logged reasons with their action.
+fault_reason_display <- function(ft) {
+  data.frame(`logged reason` = ft$by_reason$reason, `points to` = ft$by_reason$action,
+             `failed attempts (share)` = share_count_text(ft$by_reason$share, ft$by_reason$count),
+             check.names = FALSE, stringsAsFactors = FALSE)
+}
+
+# One line per failure type: n, failed, failed share, the rule counts.
+fault_summary_text <- function(ft) {
+  label <- if (ft$type == "rent") "Rent" else "Return"
+  share <- if (is.na(ft$failed_share)) paste0("n/a (", ft$failed_share_reason, ")")
+           else paste0(sprintf("%.1f", 100 * ft$failed_share), "%")
+  rule <- if (!ft$rule_applied) "status/attempt rule not applied (no usable status records)."
+          else paste0(ft$reclassified, " reclassified as data check (status contradicts the log); ",
+                      ft$not_checked, " could not be checked (unknown minute); ", ft$checked, " checked.")
+  paste0(label, " failures: ", ft$n_failed, " of ", ft$n, " attempts failed (", share, "). ", rule,
+         if (nzchar(ft$shares_reason)) paste0(" Shares: ", ft$shares_reason, ".") else "")
+}
+
+# Per-station table text: counts per action and the top cause.
+fault_station_display <- function(st, top = 10) {
+  if (nrow(st) == 0) return(data.frame(note = "No failed attempts in this scope."))
+  st <- utils::head(st, top)
+  st <- as_whole_numbers(st, c("n_failed", "rebalancing", "maintenance", "data check", "data_check"))
+  names(st)[names(st) == "n_failed"] <- "failed attempts"
+  names(st)[names(st) == "top_cause"] <- "top cause"
+  st
+}
+
+# ---- Simulated task table (H-18): formatting only; the rules are in tasks.R
+# The task table for the page: times as New York clock text (HH:MM), empty cells as "".
+tasks_display <- function(tasks, tz = APP_TZ) {
+  if (is.null(tasks) || nrow(tasks) == 0) return(data.frame(note = "No simulated tasks yet."))
+  clock <- function(x) ifelse(is.na(x), "", format(x, "%H:%M", tz = tz))
+  text <- function(x) ifelse(is.na(x), "", as.character(x))
+  data.frame(task_id = tasks$task_id, status = tasks$status, from = tasks$source_station_id,
+             to = tasks$destination_station_id, planned_bikes = tasks$planned_quantity,
+             actual_bikes = text(tasks$actual_quantity), van_id = text(tasks$van_id),
+             assigned = clock(tasks$assigned_at), arrived = clock(tasks$arrived_at),
+             completed = clock(tasks$completed_at), stringsAsFactors = FALSE)
+}
+
+# The time for a move: the chosen date + observation minute (minutes after 07:00), New York clock.
+task_time_default <- function(date, minute, tz = APP_TZ) {
+  format(as.POSIXct(paste(date, "07:00:00"), tz = tz) + 60 * minute, "%H:%M", tz = tz)
+}
+
+# Read "HH:MM" on a date as a POSIXct (New York); NA when the text is not a valid time.
+task_time_parse <- function(date, text, tz = APP_TZ) {
+  text <- trimws(as.character(text))
+  if (length(text) != 1 || is.na(text) || !grepl("^([01][0-9]|2[0-3]):[0-5][0-9]$", text)) {
+    return(as.POSIXct(NA, tz = tz))
+  }
+  as.POSIXct(paste0(date, " ", text, ":00"), tz = tz)
 }
