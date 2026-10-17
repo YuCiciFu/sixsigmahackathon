@@ -91,16 +91,16 @@ tasks:
   - id: H-05
     title: Demonstration of the tool on every test dataset
     points: "10 - Tool Design: a clear demonstration of the tool, using test datasets"
-    status: todo
-    owner: ""
-    started_at: ""
+    status: blocked
+    owner: "YuCiciFu + Claude"
+    started_at: "2026-10-17 09:41"
     owns: ["demo/", "app/frontend/"]
     definition_of_done: >
       demo/README.md walks through each data/ CSV with the exact command or
       URL to run, the numbers or chart the tool shows, and a one-line "how to
       read this"; a teammate who did not write it follows it and gets the same
       numbers.
-    result: ""
+    result: "blocked: demo/README.md drafted for baseline, planted_shift and edge_case, every number from Rscript demo/print_demo_numbers.R (re-run, identical); waiting for a teammate who did not write it to follow it and record the result in its checklist"
 
   - id: H-06
     title: Deploy to the course Posit Connect server
