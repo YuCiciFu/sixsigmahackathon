@@ -2,8 +2,8 @@
 
 A web dashboard for the **municipal bikeshare dispatcher** who plans the rebalancing vans for the
 weekday morning rush (07:00-10:00 New York time). It shows where and when stations are unusable
-(empty or full), checks with control charts whether service is really getting worse, forecasts which
-stations are about to become unusable, and suggests which bikes to move.
+(empty or full), checks with control charts whether service is really getting worse, and forecasts
+which stations are about to become unusable, so the dispatcher knows where to send a van first.
 
 **Live app (public, no login): https://connect.systems-apps.com/content/d242b1d3-484c-484f-a581-8e4a67845434/**
 
@@ -46,11 +46,9 @@ A guided walkthrough on the three test datasets, with every number it quotes, is
 | Tab | What you see | Statistic behind it |
 |---|---|---|
 | Overview | Station map by state at the chosen minute, KPIs, station ranking, data issues | Unusable minutes per known minute (rent-unusable: 0 bikes or renting off; return-unusable: 0 docks or returning off); early warning is ranking only, never a failure |
-| Stations | Inventory trend, unusable minutes, hour-by-station heatmap, Pareto | Same station-minute grid |
+| Stations | Inventory trend, unusable minutes, hour-by-station heatmap | Same station-minute grid |
 | Quality | p charts (rent and return failures), c chart of failure onsets, X-bar/R chart of van response time with Cp, Cpk and Cpu | p chart limits p-bar +/- 3 sqrt(p-bar(1-p-bar)/n_i) under a binomial assumption; c chart c-bar +/- 3 sqrt(c-bar) with a variance/mean check of the Poisson assumption; X-bar/R with constants A2, D3, D4; Cpu = (USL - X-double-bar)/(3 R-bar/d2) (Cp and Cpk also need an LSL), computed only when you enter a USL and the chart is in control. Signals: Western Electric rules 1 and 4 |
 | Forecast | **Now:** risk that a station becomes unusable now or within 10, 20, 30 minutes | Poisson demand per station and 15-minute bin from the earlier weekdays, step 5a (fixed rates) plus an optional day bootstrap, with three uncertainty sources shown separately |
-| Diagnosis | Qualitative fault tree for rent failure and return failure, cause shares, actions | Shares of `failure_reason` codes mapped to rebalancing, maintenance or data check; no probabilities are invented |
-| Rebalancing | Recommended moves (from, to, bikes, estimated distance), and a button that creates simulated tasks you can move through the statuses | Greedy heuristic, not an optimiser. Task statuses live in your browser session only and are lost on reload |
 
 Every chart or number shows its unit and its sample size or coverage, plus a one-line "how to read
 this". The full formulas and the hand-worked known answers are in [docs/methods.md](docs/methods.md).
@@ -68,9 +66,7 @@ real feed; change it and read the result accordingly.
 |---|---|---|
 | `stale_limit` (oldest snapshot, minutes, that still counts) | 2 | yes |
 | Early-warning threshold (bikes or docks, ranking only) | 2 | yes |
-| Target fill (share of capacity a station should hold) | 0.5 | yes (heuristic) |
-| Van capacity (bikes) | 12 | yes |
-| Detour factor (road km = straight line x factor) | 1.3 | yes |
+| Detour factor (road km = straight line x factor; forecast, vans on the way) | 1.3 | yes |
 | Minimum coverage for SPC (known / all minutes) | 0.95 | yes |
 | Baseline share (first part of the weekdays sets the limits) | 0.5 | yes |
 | USL, LSL for Cpu / Cp / Cpk (minutes) | blank (no USL, no index) | you enter it |
@@ -114,23 +110,24 @@ Read these before trusting any number.
   who gave up without trying are not in the log. The event includes the state at t0 (a station
   already unusable has probability 1). The standard error is rough near 0 and 1. The bootstrap
   range is partly inflated by simulation noise. Only earlier weekdays are used (no look-ahead).
-- **Rebalancing is not evaluated.** The tool suggests moves but does not claim they reduce unusable
-  minutes; no policy comparison is included.
-- **Fault tree.** The rule that reclassifies a "no_bike" failure when the status shows bikes never
-  fires on the built-in data.
+- **No move plan and no cause analysis.** The tool shows where and when stations fail and which are
+  at risk; it does not recommend van moves, does not diagnose causes and does not measure whether
+  rebalancing helps.
 - **No observed failures does not mean zero risk.** Values that cannot be estimated show `NA` with
   a reason, never `Inf` or a made-up number.
 
 ## How it was checked
 
 - testthat suites in [tests/](tests/) reproduce the hand-worked known answers of the features kept
-  (KA-1, KA-1b, KA-2 to KA-2c, KA-4, KA-6, KA-7, KA-8b to KA-8d, KA-10, KA-11) from
+  (KA-1, KA-1b, KA-2 to KA-2c, KA-6, KA-7, KA-8b to KA-8d, KA-11) from
   [docs/methods.md](docs/methods.md) section 4.2, plus degenerate cases (constant data, n = 1,
-  missing values). Last full run: 743 passing, 0 failing.
+  missing values). Last full run: 458 passing, 0 failing.
 - Independent statistics reviews of each statistic, Playwright checks of the screens, and a
   logged-out check of the live URL (HTTP 200).
-- Scope: the I-MR chart, the p chart's dispersion test, Kaplan-Meier, availability/R(tau) and the
-  three-policy comparison were removed on 2026-10-17 at the team's request (task H-19); their earlier checks are in git history and [CONTRACT.yaml](CONTRACT.yaml).
+- Scope: the I-MR chart, the p chart's dispersion test, Kaplan-Meier, availability/R(tau), the
+  three-policy comparison, the Pareto chart, the Diagnosis tab (fault trees) and the Rebalancing tab
+  (move plan and simulated task statuses) were removed on 2026-10-17 at the team's request (task
+  H-19); their earlier checks are in git history and [CONTRACT.yaml](CONTRACT.yaml).
 
 ## Project status (what is NOT done)
 

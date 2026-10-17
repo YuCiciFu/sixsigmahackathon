@@ -1,7 +1,7 @@
 # print_demo_numbers.R
 #
 # Prints every number that demo/README.md quotes, by calling the same functions the app calls
-# (app/qc.R, prep.R, sim.R, forecast.R, faulttree.R, tasks.R) on
+# (app/qc.R, prep.R, sim.R, forecast.R) on
 # data/baseline.csv, data/planted_shift.csv and data/edge_case.csv, with the app's default settings.
 # No statistics are written here: this file only loads, calls and prints.
 #
@@ -13,14 +13,14 @@ if (!file.exists(file.path(repo, "app", "qc.R"))) stop("Run this from the repo r
 
 # Source the app files in the order app.R does (their working directory is the app folder).
 setwd(file.path(repo, "app"))
-for (f in c("qc.R", "prep.R", "sim.R", "forecast.R", "faulttree.R", "tasks.R")) {
+for (f in c("qc.R", "prep.R", "sim.R", "forecast.R")) {
   source(f)
 }
 setwd(repo)
 
 # App defaults (sidebar): stale_limit 2, early-warning 2, coverage 0.95, baseline share 0.5,
-# target fill 0.5, van capacity 12, detour 1.3.
-STALE <- 2; WARN_K <- 2; MIN_COV <- 0.95; BASE_SHARE <- 0.5; FILL <- 0.5; CAPACITY <- 12; DETOUR <- 1.3
+# detour 1.3 (the forecast's vans on the way).
+STALE <- 2; WARN_K <- 2; MIN_COV <- 0.95; BASE_SHARE <- 0.5; DETOUR <- 1.3
 
 say <- function(...) cat(..., "\n", sep = "")
 head1 <- function(x) { say(""); say("==================== ", x, " ====================") }
@@ -123,50 +123,6 @@ forecast_demo <- function(S, date, minute, R = 2000, seed = 1) {
   show(head(ft[, keep], 5), na = "n/a")   # app column order: sorted by highest 30-minute risk
 }
 
-diag_demo <- function(S, label, dates) {
-  head2(paste("Diagnosis, scope:", label))
-  a <- scope_attempts(S$sc$attempts, dates); g <- pooled_grid(S$grids, dates)
-  for (type in c("rent", "return")) {
-    ft <- fault_tree(a, type, g)
-    say(type, " failed: ", fault_summary_text(ft))
-    show(fault_action_display(ft), na = "n/a")
-    show(fault_reason_display(ft), na = "n/a")
-  }
-}
-
-rebalance_demo <- function(S, date, minute) {
-  head2(paste("Rebalancing,", date, sprintf("%02d:%02d", 7 + minute %/% 60, minute %% 60)))
-  grid <- set_warning_threshold(S$grids[[date]], WARN_K)
-  summ <- rank_stations(unusable_summary(grid))
-  st <- state_at(grid, minute)
-  plan <- rebalance_plan(st, S$sc$stations, rank = summ[, c("station_id", "rank")], target_fill = FILL,
-                         van_capacity = CAPACITY, detour = DETOUR)
-  mv <- plan$moves
-  if (nrow(mv) == 0) say("No move is recommended at this minute.") else
-    show(data.frame(from = mv$from_station, to = mv$to_station, bikes = as.integer(round(mv$quantity)), est_distance_km = mv$est_distance_km))
-  ex <- plan$excluded
-  if (nrow(ex) == 0) say("Stations left out: none.") else {
-    ex <- explain_exclusion(ex, S$sc$status, st$minute[1], STALE, S$sc$issues)
-    say("Stations left out of moves:"); show(data.frame(station_id = ex$station_id, reason = ex$detail, recommendation = ex$recommendation))
-  }
-  invisible(plan)
-}
-
-task_demo <- function(plan, date, minute) {
-  head2("Rebalancing: simulated task status demo")
-  mv <- plan$moves
-  if (nrow(mv) == 0) { say("No moves, so no tasks."); return(invisible()) }
-  at0 <- as.POSIXct(paste(date, "07:00:00"), tz = APP_TZ) + 60 * minute
-  tk <- new_tasks_from_plan(mv, at0)
-  say("Created ", nrow(tk), " planned task(s): ", paste(tk$task_id, collapse = ", "))
-  show(tasks_display(tk)[1:3, c("task_id", "status", "from", "to", "planned_bikes")])
-  id <- tk$task_id[1]
-  t <- function(hhmm) task_time_parse(date, hhmm)
-  r1 <- task_transition(tk, id, "assigned", van_id = "V1", at = t("07:05")); say(r1$message)
-  r2 <- task_transition(r1$tasks, id, "completed", at = t("07:30"), actual_quantity = 1); say(r2$message)
-  show(tasks_display(r1$tasks)[1:3, c("task_id", "status", "from", "to", "planned_bikes", "van_id", "assigned")])
-}
-
 # ---------------------------------------------------------------- run
 t_start <- Sys.time()
 
@@ -181,16 +137,12 @@ qw <- quality(B)
 c_chart_demo(B, qw$windows)
 xbar_demo(B, usl = 12)
 forecast_demo(B, "2026-10-05", 30)
-plan_b <- rebalance_demo(B, "2026-09-21", 5)
-task_demo(plan_b, "2026-09-21", 5)
 
 head1("PLANTED_SHIFT (data/planted_shift.csv)")
 P <- load_all("planted_shift")
 say("Dates: ", length(P$dates), " weekdays; day 10 = ", P$dates[10], ", day 11 = ", P$dates[11])
 qw_p <- quality(P)
 c_chart_demo(P, qw_p$windows)
-diag_demo(P, "all weekdays", P$dates)
-diag_demo(P, "2026-10-05 only", "2026-10-05")
 
 head1("EDGE_CASE (data/edge_case.csv)")
 E <- load_all("edge_case")
@@ -199,7 +151,6 @@ say("After validation: ", nrow(E$sc$stations), " stations, ", nrow(E$sc$status),
     " attempts, ", nrow(E$sc$tasks), " tasks")
 overview(E, E$dates[1])
 data_issues(E)
-rebalance_demo(E, E$dates[1], 12)
 qw_e <- quality(E)
 c_chart_demo(E, qw_e$windows)
 forecast_demo(E, E$dates[1], 5)

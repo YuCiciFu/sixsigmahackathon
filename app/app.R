@@ -1,7 +1,7 @@
 # Rush Hour Autopilot - Shiny dashboard (team 2027win)
 #
 # app.R does the screen and the wiring ONLY:
-#   app/qc.R    every statistic (loader, grid, p, c and X-bar/R charts, capability, rebalancing plan)
+#   app/qc.R    every statistic (loader, grid, p, c and X-bar/R charts, capability)
 #   app/prep.R  data shaping (dates, counts of attempts, ranking, baseline choice)
 #   app/plots.R ggplot drawing
 #   app/sim.R   the demand model shared by the forecast (rates from earlier weekdays)
@@ -20,8 +20,6 @@ source("prep.R", local = TRUE)
 source("plots.R", local = TRUE)
 source("sim.R", local = TRUE)     # demand rates from earlier weekdays, used by the forecast
 source("forecast.R", local = TRUE)   # the Now risk forecast, step 5a (H-13) and the day bootstrap 5b (H-14)
-source("faulttree.R", local = TRUE)     # qualitative fault trees and cause shares (H-17, Diagnosis tab)
-source("tasks.R", local = TRUE)         # simulated task status moves and their rules (H-18, Rebalancing tab)
 
 # Built-in scenarios (H-02 data): app/data/*.csv.gz in the deployed bundle, ../data/*.csv in a
 # clone. With none, fall back to the tiny test fixture, else ask for an upload.
@@ -38,7 +36,7 @@ cached <- function(key, value) {
 }
 
 # What pauses when a record type cannot be used (see table_block_message in prep.R).
-NEEDS_STATUS <- "the map, the minute grid, the station views, the c chart, the forecast and rebalancing"
+NEEDS_STATUS <- "the map, the minute grid, the station views, the c chart and the forecast"
 NEEDS_ATTEMPTS <- "the failure rates and the p charts"
 NEEDS_TASKS <- "the X-bar/R chart of response time and the capability indices"
 
@@ -84,9 +82,7 @@ ui <- page_navbar(
     tags$b("Parameters"),
     numericInput("stale_limit", "stale_limit, minutes (demo assumption)", 2, min = 0, step = 1),
     numericInput("warn_k", "Early-warning threshold, bikes or docks (ranking only)", 2, min = 1, step = 1),
-    sliderInput("target_fill", "Target fill (demo heuristic)", 0.1, 0.9, 0.5, step = 0.05),
-    numericInput("van_capacity", "Van capacity, bikes (demo assumption)", 12, min = 1, step = 1),
-    numericInput("detour", "Detour factor (demo assumption)", 1.3, min = 1, max = 3, step = 0.1),
+    numericInput("detour", "Detour factor (demo assumption; forecast, vans on the way)", 1.3, min = 1, max = 3, step = 0.1),
     sliderInput("min_coverage", "Minimum coverage for SPC (demo assumption)", 0.5, 1, 0.95, step = 0.01),
     sliderInput("baseline_share", "Baseline share (first part of the weekdays)", 0.1, 1, 0.5, step = 0.05)
   ),
@@ -125,16 +121,9 @@ ui <- page_navbar(
          help_text("Minutes are counted over KNOWN minutes only; compare stations by coverage-aware",
                    " numbers, not raw totals. Early warning is for ranking and is not a failure."),
          tableOutput("station_tbl")),
-    layout_columns(
-      fill = FALSE,
-      col_widths = c(6, 6),
-      panel_card(card_header("Heatmap: either-unusable minutes by hour and station"),
-           help_text("How to read this: darker = more unusable minutes in that hour."),
-           plotOutput("heatmap", height = 400)),
-      panel_card(card_header("Pareto of either-unusable minutes"),
-           help_text("How to read this: bars = minutes per station, largest first; red line = cumulative share."),
-           plotOutput("pareto", height = 400))
-    )
+    panel_card(card_header("Heatmap: either-unusable minutes by hour and station"),
+         help_text("How to read this: darker = more unusable minutes in that hour."),
+         plotOutput("heatmap", height = 400))
   ),
 
   nav_panel("Quality",
@@ -256,91 +245,6 @@ ui <- page_navbar(
                 " demo assumption.")),
       tags$b("Source days (weekdays before t0's date)"), textOutput("fc_days"),
       tags$b("Bin rates used (network mean over the stations forecast)"), tableOutput("fc_rates_tbl"))
-  ),
-
-  nav_panel("Diagnosis",
-    help_text("Question: when a rent or a return fails, is the cause something a van fixes (rebalancing), something a",
-              " technician fixes (maintenance), or a record that cannot be trusted (data check)? Each logged",
-              " failure_reason is mapped to one action; the share of an action is its failed attempts divided by all",
-              " failed attempts in the chosen scope."),
-    radioButtons("dx_scope", "Scope",
-                 choices = c("Sidebar date, 07:00-10:00 window" = "one", "All weekdays, 07:00-10:00 windows" = "all"),
-                 inline = TRUE),
-    uiOutput("dx_head"),
-    alert_box(paste("Qualitative only. No component probability data exist, so the trees give no probability of the",
-                    "top event. The shares describe the logged failures of the chosen scope and nothing more; they",
-                    "are not a forecast."), "info"),
-    layout_columns(
-      fill = FALSE, col_widths = c(6, 6),
-      panel_card(card_header("Fault tree: rent failed"), plotOutput("dx_tree_rent", height = 360),
-                 textOutput("dx_text_rent"), tableOutput("dx_action_rent")),
-      panel_card(card_header("Fault tree: return failed"), plotOutput("dx_tree_return", height = 360),
-                 textOutput("dx_text_return"), tableOutput("dx_action_return"))),
-    layout_columns(
-      fill = FALSE, col_widths = c(6, 6),
-      panel_card(card_header("Rent failures by logged reason"), tableOutput("dx_reason_rent")),
-      panel_card(card_header("Return failures by logged reason"), tableOutput("dx_reason_return"))),
-    layout_columns(
-      fill = FALSE, col_widths = c(6, 6),
-      panel_card(card_header("Stations with the most failed rents, and their top cause"), tableOutput("dx_station_rent")),
-      panel_card(card_header("Stations with the most failed returns, and their top cause"), tableOutput("dx_station_return"))),
-    help_text("How to read this: the top box is the failure; the OR gate means any one of the three branches is enough to",
-              " cause it. Each branch lists the logged reasons that point to it, with the number of failed attempts and the",
-              " share of all failed attempts in the scope. Per-station tables show where maintenance or rebalancing is",
-              " needed; a station with few failures has an unreliable top cause."),
-    tags$b("Assumptions and definitions"),
-    tags$ul(
-      tags$li("Cause mapping (docs/methods.md section 7): no_bike and no_dock -> rebalancing; bike_fault, dock_fault and",
-              " station_closed -> maintenance; app_error -> data check."),
-      tags$li("Status/attempt contradiction (KA-10): a failed rent logged no_bike in a minute whose valid, known status",
-              " shows bikes_available > 0 is moved to data check. Extension of the methods: the same rule for returns",
-              " (a failed return logged no_dock while docks_available > 0). The minute is the interval [m, m+1) that",
-              " contains the attempt time. That minute's state is the latest valid snapshot at or before the start",
-              " of the minute (the 4.1 grid rule), so a change logged later inside the same minute is not used;",
-              " this avoids false data-check flags but can miss a contradiction right at a change."),
-      tags$li("If that minute is unknown or stale (or outside the 07:00-10:00 grid), the attempt keeps its logged reason and",
-              " is counted as 'could not be checked'. With no usable status records the logged-reason tree is shown and",
-              " no reclassification is possible."),
-      tags$li("Zero failures: counts are 0 and shares are n/a; no failures observed does not mean zero risk."),
-      tags$li("Pooled weekdays count every failed attempt of every day; days with different numbers of attempts are",
-              " weighted by their failures."))
-  ),
-
-  nav_panel("Rebalancing",
-    help_text("Greedy heuristic, not an optimum: the worst-ranked deficit station gets one move from the",
-              " nearest station with a surplus. Distances are estimated (straight line x detour factor),",
-              " not a road route. State = the chosen date and minute."),
-    textOutput("plan_title"),
-    panel_card(card_header("Recommended moves"), tableOutput("moves_tbl")),
-    layout_columns(
-      fill = FALSE,
-      col_widths = c(6, 6),
-      panel_card(card_header("Stations left out of moves (closed or no valid data)"), tableOutput("excluded_plan_tbl")),
-      panel_card(card_header("Unmet deficits after the moves"), tableOutput("unmet_tbl"))
-    ),
-    panel_card(card_header("Simulated van tasks (status updates)"),
-      alert_box(TASK_NOT_SAVED_NOTE, "info"),
-      help_text("Question: can the recommended moves be turned into van tasks and moved through their statuses?",
-                " The button adds the moves above as planned tasks (a new click adds new task ids, never repeats one).",
-                " Allowed moves, forward only: planned -> assigned -> in_progress -> completed; planned, assigned or",
-                " in_progress -> cancelled; completed and cancelled are final. Rules (docs/methods.md section 7):",
-                " assigned needs a van id and a time; in_progress needs a time not before assigned; completed needs a",
-                " time not before arrived and the bikes actually moved (a whole number from 0 to the planned bikes);",
-                " a van holds one active (assigned or in_progress) task at a time. Times are New York clock times",
-                " (HH:MM) on the sidebar date; the default is the sidebar observation minute. Demo assumptions: the",
-                " task ids (SIM-001, ...), the forward-only order and the one-active-task-per-van rule. A cancelled",
-                " task that never had a van needs none."),
-      actionButton("tk_create", "Create simulated tasks from these moves", class = "btn-primary"),
-      tableOutput("tk_tbl"),
-      layout_columns(
-        fill = FALSE, col_widths = c(3, 3, 2, 2, 2),
-        selectInput("tk_select", "Task", choices = character(0)),
-        selectInput("tk_status", "Move to status", choices = TASK_STATUS_ORDER[-1], selected = "assigned"),
-        selectInput("tk_van", "Van id (for assigned)", choices = c("V1", "V2")),
-        textInput("tk_time", "Time (HH:MM, New York)", value = "07:05"),
-        blank_numeric_input("tk_qty", "Bikes actually moved (for completed)", min = 0, step = 1)),
-      actionButton("tk_apply", "Apply", class = "btn-primary"),
-      uiOutput("tk_msg"))
   )
 )
 
@@ -634,12 +538,6 @@ server <- function(input, output, session) {
   })
   output$station_tbl <- renderTable(station_table(summ(), sc()$stations), digits = 1)
   output$heatmap <- renderPlot(plot_heatmap(hour_station_matrix(grid())))
-  output$pareto <- renderPlot({
-    p <- pareto_order(summ())
-    validate(need(nrow(p) > 0, "No stations."),
-             need(sum(p$either_unusable_min) > 0, "No unusable minutes in the known data for this date."))
-    plot_pareto(p)
-  })
 
   # ---- Quality
   output$baseline_info <- renderUI({
@@ -842,114 +740,6 @@ server <- function(input, output, session) {
     paste0(length(f$source_days), " weekday(s): ", paste(f$source_days, collapse = ", "))
   })
   output$fc_rates_tbl <- renderTable(forecast_rate_display(fc_res()), na = "n/a")
-
-  # ---- Diagnosis: fault trees (statistics in faulttree.R, scope and wording in prep.R)
-  dx_dates <- reactive({
-    validate(need(is.null(attempts_msg()), attempts_msg()))
-    if (identical(input$dx_scope, "all")) dates() else { req(input$date); input$date }
-  })
-  dx_attempts <- reactive(scope_attempts(sc()$attempts, dx_dates()))
-  dx_grid <- reactive({                     # NULL when status is unusable: the rule is then not applied
-    if (!is.null(status_msg())) return(NULL)
-    pooled_grid(grids(), dx_dates())
-  })
-  dx_res <- reactive({
-    a <- dx_attempts()
-    g <- dx_grid()
-    list(rent = fault_tree(a, "rent", g), `return` = fault_tree(a, "return", g),
-         st_rent = fault_tree_by_station(a, "rent", g), st_return = fault_tree_by_station(a, "return", g))
-  })
-  output$dx_head <- renderUI({
-    r <- dx_res()
-    note <- if (is.null(dx_grid())) paste("No usable status records: the logged-reason tree is shown and the",
-                                          "status/attempt rule cannot be applied.")
-            else paste0("stale_limit = ", stale_limit(), " min.")
-    help_text("Days: ", paste(dx_dates(), collapse = ", "), ". Window 07:00-10:00. ", note, " Simulated data.")
-  })
-  output$dx_tree_rent <- renderPlot(plot_fault_tree(dx_res()$rent, "Rent failed"))
-  output$dx_tree_return <- renderPlot(plot_fault_tree(dx_res()$`return`, "Return failed"))
-  output$dx_text_rent <- renderText(fault_summary_text(dx_res()$rent))
-  output$dx_text_return <- renderText(fault_summary_text(dx_res()$`return`))
-  output$dx_action_rent <- renderTable(fault_action_display(dx_res()$rent), na = "n/a")
-  output$dx_action_return <- renderTable(fault_action_display(dx_res()$`return`), na = "n/a")
-  output$dx_reason_rent <- renderTable(fault_reason_display(dx_res()$rent), na = "n/a")
-  output$dx_reason_return <- renderTable(fault_reason_display(dx_res()$`return`), na = "n/a")
-  output$dx_station_rent <- renderTable(fault_station_display(dx_res()$st_rent), na = "n/a")
-  output$dx_station_return <- renderTable(fault_station_display(dx_res()$st_return), na = "n/a")
-
-  # ---- Rebalancing
-  plan <- reactive({
-    r <- summ()[, c("station_id", "rank")]
-    rebalance_plan(state(), sc()$stations, rank = r, target_fill = input$target_fill,
-                   van_capacity = input$van_capacity, detour = input$detour)
-  })
-  output$plan_title <- renderText({
-    m <- input$minute
-    sprintf("Plan for %s at %02d:%02d (greedy heuristic, not an optimum). Stations with stale data are left out.",
-            input$date, 7 + m %/% 60, m %% 60)
-  })
-  output$moves_tbl <- renderTable({
-    mv <- plan()$moves
-    if (nrow(mv) == 0) return(data.frame(note = "No move is recommended at this minute."))
-    data.frame(from = mv$from_station, to = mv$to_station, bikes = as.integer(round(mv$quantity)),
-               `estimated_distance_km (estimated, not a road route)` = mv$est_distance_km,
-               check.names = FALSE)
-  })
-  output$excluded_plan_tbl <- renderTable({
-    ex <- plan()$excluded
-    if (nrow(ex) == 0) return(data.frame(note = "None."))
-    ex <- explain_exclusion(ex, sc()$status, state()$minute[1], input$stale_limit, sc()$issues)
-    data.frame(station_id = ex$station_id, reason = ex$detail,
-               recommendation = ex$recommendation)
-  })
-  output$unmet_tbl <- renderTable({
-    u <- plan()$unmet
-    if (nrow(u) == 0) data.frame(note = "None.") else as_whole_numbers(u, "remaining_deficit")
-  })
-
-  # ---- Simulated tasks (H-18): the rules are in tasks.R; session only, nothing is saved or fed back
-  tasks_rv <- reactiveVal(empty_tasks())
-  tk_message <- reactiveVal(NULL)               # list(ok, text) of the last click
-  observeEvent(sc(), { tasks_rv(empty_tasks()); tk_message(NULL) })   # a new file starts clean
-  observeEvent(sc(), updateSelectInput(session, "tk_van", choices = task_van_choices(sc()$tasks)))
-  observeEvent(list(input$date, input$minute), {
-    req(input$date, input$minute)
-    updateTextInput(session, "tk_time", value = task_time_default(input$date, input$minute))
-  })
-  observeEvent(tasks_rv(), {
-    ids <- tasks_rv()$task_id
-    keep <- if (isTRUE(isolate(input$tk_select) %in% ids)) isolate(input$tk_select) else utils::tail(ids, 1)
-    updateSelectInput(session, "tk_select", choices = ids, selected = keep)
-  })
-  observeEvent(input$tk_create, {
-    mv <- tryCatch(plan()$moves, error = function(e) NULL)
-    if (is.null(mv) || nrow(mv) == 0) {
-      tk_message(list(ok = FALSE, text = "No tasks created: no move is recommended at this minute."))
-      return()
-    }
-    made <- new_tasks_from_plan(mv, as.POSIXct(paste(input$date, "07:00:00"), tz = APP_TZ) + 60 * input$minute,
-                                existing = tasks_rv())
-    tasks_rv(rbind(tasks_rv(), made))
-    tk_message(list(ok = TRUE, text = paste0("Created ", nrow(made), " planned task(s): ",
-                                             paste(made$task_id, collapse = ", "), ".")))
-  })
-  observeEvent(input$tk_apply, {
-    to <- input$tk_status
-    at <- task_time_parse(input$date, input$tk_time)
-    if (is.na(at) && to %in% c("assigned", "in_progress", "completed")) {
-      tk_message(list(ok = FALSE, text = "Rejected: the time must look like 07:35 (HH:MM, 24 hours)."))
-      return()
-    }
-    r <- task_transition(tasks_rv(), input$tk_select, to, van_id = input$tk_van, at = at,
-                         actual_quantity = if (is.na(input$tk_qty)) NULL else input$tk_qty)
-    if (r$ok) tasks_rv(r$tasks)
-    tk_message(list(ok = r$ok, text = r$message))
-  })
-  output$tk_tbl <- renderTable(tasks_display(tasks_rv()))
-  output$tk_msg <- renderUI({
-    m <- tk_message()
-    if (!is.null(m)) alert_box(m$text, if (m$ok) "success" else "danger")
-  })
 }
 
 shinyApp(ui = ui, server = server)

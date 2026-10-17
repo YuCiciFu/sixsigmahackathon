@@ -29,14 +29,12 @@ The GitHub Actions workflow `.github/workflows/deploy-shiny-r.yml` redeploys on 
 
 | File | Contents |
 |---|---|
-| `app.R` | UI (6 tabs, sidebar) and `server`; sources the files below |
-| `qc.R` | loader and validator, station-minute grid, p, c and X-bar/R charts, capability, rebalancing plan |
+| `app.R` | UI (4 tabs, sidebar) and `server`; sources the files below |
+| `qc.R` | loader and validator, station-minute grid, p, c and X-bar/R charts, capability, great-circle distance |
 | `prep.R` | data shaping and display tables (no statistics) |
 | `plots.R` | ggplot2 drawing helpers (no statistics) |
 | `sim.R` | demand rates from earlier weekdays and van parameters, shared by the forecast |
 | `forecast.R` | current-state risk forecast (Poisson, day bootstrap) |
-| `faulttree.R` | failure classification and fault-tree numbers |
-| `tasks.R` | simulated task statuses (session only) |
 | `data/` | bundled scenario copies (`*.csv.gz`) |
 
 ## Function reference
@@ -65,8 +63,7 @@ headers; only the functions that carry a statistic or a rule are listed.
 | `xbar_r_chart(values, baseline)` | matrix (rows = subgroups of 3) -> limits | A2, D3, D4, sigma-hat = R-bar/d2 (not the overall SD); NA if R-bar = 0 or fewer than 2 baseline subgroups |
 | `capability_indices(xbr, usl, lsl)` | chart + operator spec limits -> Cpu, Cpl, Cp, Cpk | Cpu = (USL - X-double-bar)/(3 sigma-hat); NA with reason if no USL, chart not in control, R-bar = 0, or USL <= LSL |
 | `normality_check(x)` | numbers -> Shapiro-Wilk W, p | NA unless 3 <= n <= 5000 and not all equal |
-| `haversine_km(lat1, lon1, lat2, lon2)` | degrees -> km | great-circle distance |
-| `rebalance_plan(state, stations, rank, ...)` | latest state -> list(moves, excluded, unmet) | greedy heuristic; target = round(target_fill x capacity); quantity = min(source surplus, destination deficit, free docks, van capacity); closed stations are excluded with a recommendation |
+| `haversine_km(lat1, lon1, lat2, lon2)` | degrees -> km | great-circle distance (used for the forecast's vans on the way) |
 
 ### prep.R (shaping and display, no statistics)
 
@@ -75,19 +72,18 @@ headers; only the functions that carry a statistic or a rule are listed.
 | `scenario_dates`, `window_bounds`, `attempts_by_day` | weekdays of the scenario, window times, attempt and failure counts per day |
 | `fixed_station_set`, `build_day_grids`, `window_table` | stations present every weekday, one grid per day, per-window coverage via `window_summary` |
 | `state_at`, `rank_stations`, `station_table`, `kpi_summary` | one-day state, ranking (unusable + early-warning minutes), KPIs |
-| `hour_station_matrix`, `pareto_order` | inputs for the heatmap and Pareto |
+| `hour_station_matrix` | input for the heatmap |
 | `baseline_count`, `baseline_flags` | which weekdays set the limits (default first half) |
 | `builtin_scenarios`, `default_scenario_path` | locate the bundled `app/data/*.csv.gz` scenarios |
 | `table_health`, `issue_summary`, `issue_detail` | data-issue messages |
 | `c_chart_table`, `xbar_r_table`, `capability_table` | tables for the Quality tab |
 | `history_info` | how many earlier weekdays the chosen date has (for the forecast's date hint) |
-| `forecast_*`, `fault_*_display`, `tasks_display` | text and tables for the Forecast, Diagnosis and task views |
+| `forecast_*` | text and tables for the Forecast tab |
 
 ### plots.R (drawing only)
 
-`plot_trend`, `plot_heatmap`, `plot_pareto`, `plot_p`, `plot_c`, `plot_xbar`, `plot_r`,
-`plot_response_hist`, `plot_forecast_risk`, `plot_fault_tree`. Each takes already computed numbers
-and returns a ggplot.
+`plot_trend`, `plot_heatmap`, `plot_p`, `plot_c`, `plot_xbar`, `plot_r`, `plot_response_hist`,
+`plot_forecast_risk`. Each takes already computed numbers and returns a ggplot.
 
 ### forecast.R
 
@@ -109,29 +105,11 @@ and returns a ggplot.
 | `estimate_demand(attempts, grids, source_days, station_ids)` | -> rates per station x type x bin | attempts / known minutes; a bin with no known minute uses the station's pooled rate |
 | `demand_lambda(rates)` | bin rates -> per-minute rates | each 15-minute bin rate repeated for its minutes |
 
-### faulttree.R
-
-| Function | Input -> output | Statistic and NA rules |
-|---|---|---|
-| `cause_action(reason)` | failure code -> rebalancing / maintenance / data check | unknown code stops with a message |
-| `classify_failures(attempts, type, grid)` | failed attempts -> logged and final action | a "no_bike" failure whose minute shows bikes > 0 becomes a data check |
-| `fault_tree(attempts, type, grid)` | -> counts and shares by reason and action | share NA when there are no failures |
-| `fault_tree_by_station(attempts, type, grid)` | -> failures and top cause per station | ties shown as "tie: a / b" |
-
-### tasks.R
-
-| Function | Job |
-|---|---|
-| `empty_tasks()`, `new_tasks_from_plan(moves, created_at, existing)` | start a task table; make planned tasks `SIM-001`, `SIM-002`, ... from the plan |
-| `validate_task_row(row)` | check one task against the status rules of methods section 7 |
-| `task_transition(tasks, task_id, to, ...)` | move a task to a new status; returns `ok`, the table, a message; the table is unchanged on failure |
-| `task_van_choices(tasks)` | van ids to offer |
-
 ## How `app.R` wires the tabs
 
 `app.R` sources the files above, loads the built-in scenarios once, then builds `nav_panel`s in
-this order: Overview, Stations, Quality, Forecast, Diagnosis, Rebalancing. Inside `server`, reactives read the scenario (upload or built-in), build the day
-grids at the chosen `stale_limit`, and each tab calls the functions above and renders the result.
+this order: Overview, Stations, Quality, Forecast. Inside `server`, reactives read the scenario
+(upload or built-in), build the day grids at the chosen `stale_limit`, and each tab calls the functions above and renders the result.
 No formula is written in `app.R`.
 
 ## Where to add a tab

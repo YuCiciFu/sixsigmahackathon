@@ -4,14 +4,14 @@ Source of truth: `SPEC.md` (template answers) and `docs/methods.md` (rules, form
 Stack: R Shiny in `app/`; statistics in `app/qc.R`, the forecast's demand model in `app/sim.R`; tests in `tests/test-*.R` (testthat).
 Tasks H-10 to H-18 were added to `CONTRACT.yaml` on 2026-10-16 (YuCiciFu); `CONTRACT.yaml` holds their current status.
 Because they all edit `app/qc.R` and `app/app.R`, they run **one at a time**.
-**Scope reduction (H-19, 2026-10-17, team request):** removed from the tool: I-MR, the p-chart dispersion test, Kaplan-Meier (H-12), the policy simulation and comparison (H-10, H-15) and availability/R(tau) (H-16). Rows below marked *removed* are history only.
+**Scope reduction (H-19, 2026-10-17, team request):** removed from the tool: I-MR, the p-chart dispersion test, Kaplan-Meier (H-12), the policy simulation and comparison (H-10, H-15), availability/R(tau) (H-16), the Pareto chart, the fault trees and Diagnosis tab (H-17), and the rebalancing plan with its task statuses (Rebalancing tab, H-18). Rows below marked *removed* are history only.
 
 ## Tier 1 (core): a runnable tool first
 | Id | Work | Owns | Needs | Acceptance (known answer + degenerate) | Est |
 |---|---|---|---|---|---|
 | H-02 | Seeded generator, 3 scenario CSVs, codebook | `data/` | methods section 7 schema | CONTRACT DoD as written; re-running `data/generate_data.R` reproduces the files byte for byte; `planted_shift` starts on weekday 11 | 1.5 h |
-| H-03 | Loader and schema validator, 4.1 grid, unusable minutes and coverage, p charts, I-MR (*removed*), greedy plan, paired CI (*removed*) | `app/qc.R`, `tests/` | current SPEC + methods are enough to build; final acceptance needs H-01 team review | KA-1, KA-1b(a-d), KA-2, KA-2b, KA-2c, KA-3 (*removed*), KA-4, KA-5 and KA-5b (*removed*), KA-11; structural errors stop; row-level problems are rejected or flagged and listed (methods section 7), never stopping the load | 2.5 h |
-| H-04 | Copy `demos/shinyapp` to `app/`; Overview, Stations, Quality (p; I-MR *removed*) and Rebalancing tabs; four R scripts | `app/` except `qc.R` | H-02, H-03 | CONTRACT DoD; Playwright shows the H-03 numbers for `data/baseline.csv` | 2 h |
+| H-03 | Loader and schema validator, 4.1 grid, unusable minutes and coverage, p charts, I-MR (*removed*), greedy plan (*removed*), paired CI (*removed*) | `app/qc.R`, `tests/` | current SPEC + methods are enough to build; final acceptance needs H-01 team review | KA-1, KA-1b(a-d), KA-2, KA-2b, KA-2c, KA-3, KA-4, KA-5 and KA-5b (*removed*), KA-11; structural errors stop; row-level problems are rejected or flagged and listed (methods section 7), never stopping the load | 2.5 h |
+| H-04 | Copy `demos/shinyapp` to `app/`; Overview, Stations, Quality (p; I-MR *removed*) and Rebalancing (*removed*) tabs; four R scripts | `app/` except `qc.R` | H-02, H-03 | CONTRACT DoD; Playwright shows the H-03 numbers for `data/baseline.csv` | 2 h |
 | H-06 | Deploy: `deploy-shiny-r.yml`, `manifest.json` | CONTRACT list | H-04 | CONTRACT DoD; **prepared only**, deploy only after the team says yes | 1 h |
 | H-10 | *Removed in H-19.* Simulation engine: van, task and event model, reservations, policies none and reactive, paired seeds; Improvement tab | `app/sim.R`, `tests/test-sim.R`, `app/app.R` | H-03, H-04 | KA-4b; conservation holds at every event; same seed gives identical output; primary CI already uses 98.333% (the alpha = 0.05/3 family) | 2.5 h |
 | H-05 | Demo walkthrough for each scenario | `demo/` | H-04, H-10 | CONTRACT DoD | 0.5 h |
@@ -30,8 +30,8 @@ Because they all edit `app/qc.R` and `app/app.R`, they run **one at a time**.
 | Id | Work | Acceptance | Est |
 |---|---|---|---|
 | H-16 | *Removed in H-19.* Empirical availability and R(tau) for series, parallel and k-out-of-n | KA-9; zero known minutes gives NA; the independence value is shown only as a contrast | 1 h |
-| H-17 | Qualitative fault trees and the cause mapping (Diagnosis tab) | KA-10 and the contradiction rule; zero failures shows counts of 0 and shares as NA | 1 h |
-| H-18 | Task status updates in the web page (session only, no database) | the section 7 transition and time rules; invalid moves are rejected; checked with Playwright | 1 h |
+| H-17 | *Removed in H-19.* Qualitative fault trees and the cause mapping (Diagnosis tab) | KA-10 and the contradiction rule; zero failures shows counts of 0 and shares as NA | 1 h |
+| H-18 | *Removed in H-19.* Task status updates in the web page (session only, no database) | the section 7 transition and time rules; invalid moves are rejected; checked with Playwright | 1 h |
 
 **Order:** H-09 (SPEC/methods split) and H-01 review, then H-02 and H-03 in parallel (disjoint files), H-04, H-06 (prepare), H-10, H-05 and H-07 drafts, H-11 to H-18 in turn, H-07 final, H-08.
 **Teammate-owned, independent of the agent:**

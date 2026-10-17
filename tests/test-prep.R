@@ -148,16 +148,6 @@ test_that("hour_station_matrix sums by station and hour; empty grid is empty", {
   expect_equal(nrow(hour_station_matrix(g[0, ])), 0)
 })
 
-test_that("pareto_order sorts descending with a cumulative share", {
-  s <- data.frame(station_id = c("A", "B", "C"), either_unusable_min = c(2, 6, 2))
-  p <- pareto_order(s)
-  expect_equal(p$station_id, c("B", "A", "C"))
-  expect_near(p$cum_share[1], 0.6)
-  expect_near(p$cum_share[3], 1)
-  zero <- pareto_order(data.frame(station_id = c("A", "B"), either_unusable_min = c(0, 0)))
-  expect_true(all(is.na(zero$cum_share)))          # total 0: no share, not 0/0
-})
-
 test_that("baseline_count and baseline_flags: first half, at least 1", {
   expect_equal(baseline_count(10), 5)
   expect_equal(baseline_count(1), 1)
@@ -205,43 +195,6 @@ test_that("Bundled copies app/data/*.csv.gz match the formal data/*.csv line for
                 "data/ or app/data/ copies are not in this checkout; run Rscript app/make_app_data.R")
     expect_identical(readLines(gzfile(gz), warn = FALSE), readLines(src, warn = FALSE), label = s)
   }
-})
-
-test_that("pipeline on the fixture: the rebalancing plan at 07:01 and at a stale minute", {
-  g <- build_day_grids(fx$status, fx$stations, day)[[day]]
-  r <- rank_stations(unusable_summary(g))
-  at1 <- rebalance_plan(state_at(g, 1), fx$stations, rank = r[, c("station_id", "rank")])
-  expect_equal(nrow(at1$moves), 0)                 # no station holds a surplus
-  expect_equal(nrow(at1$unmet), 2)
-  at10 <- rebalance_plan(state_at(g, 10), fx$stations, rank = r[, c("station_id", "rank")])
-  expect_equal(sort(at10$excluded$station_id), c("S1", "S2"))   # stale data: data check
-  expect_match(at10$excluded$recommendation[1], "data check")
-})
-
-test_that("explain_exclusion tells stale, missing and invalid apart (qc.R unchanged)", {
-  g <- build_day_grids(fx$status, fx$stations, day)[[day]]
-  st <- state_at(g, 5)                                   # 07:05: S1 age 5, S2 age 4 > 2
-  ex <- rebalance_plan(st, fx$stations)$excluded
-  out <- explain_exclusion(ex, fx$status, st$minute[1], 2, fx$issues)
-  s1 <- out$detail[out$station_id == "S1"]
-  s2 <- out$detail[out$station_id == "S2"]
-  expect_true(startsWith(s1, "stale station data: last valid snapshot is 5 min old (stale_limit 2 min)"))
-  expect_match(s2, "^stale station data: last valid snapshot is 4 min old")
-  expect_match(s1, "invalid status row(s) rejected", fixed = TRUE)          # fixture rejects S1 rows
-  expect_equal(out$reason, ex$reason)                              # qc.R reason kept as is
-
-  # missing: no valid snapshot at or before the minute
-  early <- st$minute[1] - 60 * 30
-  ex2 <- data.frame(station_id = "S1", reason = "missing station data",
-                    recommendation = "data check", stringsAsFactors = FALSE)
-  out2 <- explain_exclusion(ex2, fx$status, early, 2, NULL)
-  expect_equal(out2$detail, "missing station data: no valid snapshot at or before this minute")
-
-  # other reasons pass through unchanged; empty input stays empty
-  ex3 <- data.frame(station_id = "S2", reason = "renting or returning is switched off",
-                    recommendation = "maintenance", stringsAsFactors = FALSE)
-  expect_equal(explain_exclusion(ex3, fx$status, st$minute[1], 2, fx$issues)$detail, ex3$reason)
-  expect_equal(nrow(explain_exclusion(ex3[0, ], fx$status, st$minute[1], 2)), 0)
 })
 
 test_that("heatmap keeps 0 and unknown apart (distinct layers and a legend entry)", {
@@ -386,15 +339,10 @@ test_that("Scenario integration (data/edge_case.csv): KA-1b rules on S002 07:02-
                c(180, 0, 0, 0, 0))
   expect_equal(s1$coverage, 1)
 
-  # the page's rebalancing at 07:12 leaves S002 out, with the stale ages above as the reason
-  plan <- rebalance_plan(state_at(g, 12), sc$stations)
-  expect_equal(plan$excluded$station_id, "S002")
-  ex12 <- explain_exclusion(plan$excluded, sc$status, at("07:12")$minute, 2, sc$issues)
-  expect_match(ex12$detail, "last valid snapshot is 3 min old", fixed = TRUE)
-  expect_match(ex12$detail, "3 invalid status row(s) rejected", fixed = TRUE)
-  ex13 <- explain_exclusion(ex12[, c("station_id", "reason", "recommendation")],
-                            sc$status, at("07:13")$minute, 2, sc$issues)
-  expect_match(ex13$detail, "last valid snapshot is 4 min old", fixed = TRUE)
+  # the Overview map at 07:12 shows S002 as unknown / stale (never as usable); S001 stays usable
+  st12 <- state_at(g, 12)
+  expect_equal(as.character(st12$state[st12$station_id == "S002"]), "unknown / stale data")
+  expect_equal(as.character(st12$state[st12$station_id == "S001"]), "usable")
 
   # one weekday: limits cannot be estimated (the H-03 degenerate rules)
   a <- attempts_by_day(sc$attempts, "2026-09-21")
@@ -413,11 +361,6 @@ test_that("station_popup shows unknown counts as 'unknown' and escapes names", {
   expect_false(grepl("NA", p[1], fixed = TRUE))
   expect_match(p[2], "bikes: 4, docks: 16", fixed = TRUE)
   expect_match(p[2], "A &lt;b&gt;&amp;&lt;/b&gt; B", fixed = TRUE)
-})
-
-test_that("as_whole_numbers", {
-  d <- as_whole_numbers(data.frame(station_id = "S1", remaining_deficit = 7), "remaining_deficit")
-  expect_identical(d$remaining_deficit, 7L)
 })
 
 test_that("history_info: the first weekday has no history; buttons point at real later dates", {

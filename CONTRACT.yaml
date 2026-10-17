@@ -70,7 +70,7 @@ tasks:
       passes, including one test that reproduces the SPEC section 4
       known-answer check and one degenerate case (constant data or n = 1).
     result: "done: testthat::test_dir('tests') 328 pass incl. KA-1..KA-5b/KA-11 and degenerate cases; stats-reviewer OVERALL PASS (twice); approved by YuCiciFu 2026-10-16 23:22 (no other teammate review recorded)"
-    scope_change: "removed from the tool in H-19 (2026-10-17, team request): the I-MR chart (KA-3), the p chart's Pearson dispersion check and paired_diff_ci (KA-5, KA-5b); the p chart, grid, rebalancing plan and their tests stay; the result above is the record at the time"
+    scope_change: "removed from the tool in H-19 (2026-10-17, team request): the I-MR chart (KA-3), the p chart's Pearson dispersion check and paired_diff_ci (KA-5, KA-5b); extended the same day: the greedy rebalancing plan (KA-4, tests/test-rebalance.R) too; the loader, grid, p chart and their tests stay; the result above is the record at the time"
 
   - id: H-04
     title: Working tool - one demo copied to app/ and wired to the H-03 function
@@ -88,6 +88,7 @@ tasks:
       on one data/ file (endpoint, function call or app upload) returns the
       same numbers as the H-03 known-answer test.
     result: "done by team decision (YuCiciFu, 2026-10-17): testme starts the app; accepted evidence = the hand-worked KA-1b rule outcomes on the formal data/edge_case.csv (integration test in tests/test-prep.R and the page) plus the H-03 rule tests; the H-03 known-answer numbers themselves are NOT reproduced on a data/ file; 2026-10-17 usability fix: Now and Improvement warn before Run when the sidebar date has no earlier weekday and offer first-with-history / latest date buttons (no look-ahead); test_dir 1244 pass"
+    scope_change: "changed in H-19 (2026-10-17, team request): the Rebalancing tab and the Pareto chart were removed; the edge_case integration test keeps every KA-1b grid check and now shows S002 as unknown / stale on the Overview state at 07:12 instead of the rebalancing exclusion text; the result above is the record at the time"
 
   - id: H-05
     title: Demonstration of the tool on every test dataset
@@ -309,6 +310,7 @@ tasks:
       contradiction rule, and zero failures showing counts of 0 with shares NA;
       Rscript -e "testthat::test_dir('tests')" passes.
     result: "done: test-faulttree.R 56 and test_dir 961 pass (KA-10 60/30/10, the contradiction rule 50/30/20, zero failures counts 0 with shares NA); stats-reviewer PASS (real-data counts and 0 contradictions recomputed from raw files); Playwright shows the Diagnosis tab trees on planted_shift"
+    scope_change: "removed in H-19 (2026-10-17, team request): the Diagnosis tab, the fault trees and cause mapping, app/faulttree.R and tests/test-faulttree.R; the result above is the record at the time"
 
   - id: H-18
     title: Task status updates in the web page (session only, no database)
@@ -322,13 +324,14 @@ tasks:
       section 7 transition and time rules with invalid moves rejected; a Playwright check
       shows a valid move accepted and an invalid one rejected on the page.
     result: "done: test-tasks.R 193 and test_dir 1154 pass (all allowed transitions accepted, disallowed and field-rule violations rejected with reasons, one active task per van); Playwright: planned -> assigned -> in_progress -> completed accepted, assigned -> completed rejected with the reason, table unchanged; also removes the empty numeric inputs' NA browser warnings"
+    scope_change: "removed in H-19 (2026-10-17, team request): the simulated task statuses on the Rebalancing tab, app/tasks.R and tests/test-tasks.R (validation of the task log in the input file stays in qc.R); the result above is the record at the time"
 
   # H-19: scope reduction requested and authorised by YuCiciFu on 2026-10-17 (task and owns
   # explicitly approved in chat). The removed features' history stays in H-03, H-10, H-12, H-15
   # and H-16 and in git; their scope_change lines say what was taken out.
 
   - id: H-19
-    title: Scope reduction - remove I-MR, p-chart dispersion, Kaplan-Meier, the policy comparison and R(tau)
+    title: Scope reduction - remove I-MR, p-chart dispersion, Kaplan-Meier, the policy comparison, R(tau), Pareto, Diagnosis and Rebalancing
     points: "protects 25 - Tool Implementation: fewer, fully checked analyses"
     status: done
     owner: "YuCiciFu + Claude"
@@ -339,14 +342,19 @@ tasks:
       phi, dispersion p-value and its warning (the plain p chart and its binomial assumption
       stay); Kaplan-Meier, Greenwood bands, RMST and MTTF (History panel); the three-policy
       paired comparison, its CIs and Bonferroni (Improvement tab and the policy simulation);
-      R(tau) with series, parallel and k-out-of-n (Reliability panel). Keep Overview,
-      Stations, the plain p chart, c chart (with its dispersion check), X-bar/R, Cpu/Cp/Cpk,
-      Diagnosis, greedy rebalancing, task status, and the Now forecast with its bootstrap
-      (it keeps the shared demand functions in app/sim.R). Rename "Forecast & Reliability" to
-      "Forecast". Formal data/*.csv, demos/ and rule files stay unchanged. No merge, no deploy.
+      R(tau) with series, parallel and k-out-of-n (Reliability panel). Extended by YuCiciFu
+      on 2026-10-17 (merged into this task): also remove the Pareto chart, the whole Diagnosis
+      tab (fault trees, app/faulttree.R) and the whole Rebalancing tab with its task
+      interaction (rebalance_plan, app/tasks.R) and their own parameters (target fill, van
+      capacity). Keep Overview, Stations (without Pareto), the plain p chart, c chart (with its
+      dispersion check), X-bar/R, Cpu/Cp/Cpk and the Now forecast with its bootstrap, plus the
+      shared functions they use (sim.R demand functions, haversine_km, state_at, the ranking,
+      task-data validation, the detour factor). Rename "Forecast & Reliability" to "Forecast".
+      Formal data/*.csv, demos/ and rule files stay unchanged. No merge, no deploy.
     definition_of_done: >
       Rscript -e "testthat::test_dir('tests')" passes; git grep finds no live code for
-      imr_chart, p_dispersion, km_, paired_diff_ci, compare_policies or reliability_ in app/
-      and tests/; a Playwright pass over every tab, an upload, a forecast run and a task move
-      shows no error; the manifest is regenerated and the app starts from its files alone.
-    result: "done: test_dir 743 pass, 0 fail (removed suites: test-survival, test-reliability, test-paired, and the I-MR, p-dispersion and policy tests); git grep finds no imr_chart, p_dispersion, paired_diff_ci, compare_policies, reliability_ or Kaplan-Meier code in app/ or tests/ (km_flat in forecast.R is known minutes); Playwright on the manifest-only bundle (ports 5774, 5775): 6 tabs, no output errors, edge_case.csv upload, forecast 25/25 at 2026-10-05 07:30 with bootstrap, 8 moves and task assign accepted / skip rejected; manifest 11 files, 68 packages, MD5s match; also: on a one-weekday file the forecast hint now says so instead of offering a useless date button; side effect stated in the docs: without the dispersion check the baseline p charts mark 7 of 20 days OUT OF CONTROL; no teammate review of the diff recorded; not merged or deployed"
+      imr_chart, p_dispersion, paired_diff_ci, compare_policies, reliability_, km_history,
+      fault_tree, rebalance_plan, task_transition or plot_pareto in app/ and tests/; a
+      Playwright pass over every remaining tab, an upload and a forecast run shows no error;
+      the manifest is regenerated and the app starts from its files alone.
+    result: "done (first part committed in bdcbeea, extension 2026-10-17): test_dir 458 pass, 0 fail (also removed test-faulttree, test-tasks, test-rebalance and the Pareto, rebalancing and as_whole_numbers tests in test-prep; the edge_case integration test keeps every KA-1b grid check); the DoD git grep finds none of the removed functions in app/ or tests/; Playwright on the manifest-only bundle (port 5776): 4 tabs (Overview, Stations, Quality, Forecast), no output errors, all 6 Quality plots, KPIs 29.9% / 820/3025 / 25/1484, forecast date buttons work, forecast 25/25 at 2026-10-05 07:30 (S008 0.054), edge_case.csv upload with 3 rejected rows and S002 grey (unknown / stale) at 07:12; manifest 9 files, 68 packages, MD5s match; demo script reprints the kept numbers unchanged; data/ and demos/ untouched (data/README.md still mentions the I-MR in its generator note); side effect stated in the docs: without the dispersion check the baseline p charts mark 7 of 20 days OUT OF CONTROL; no teammate review of the diff recorded; not merged or deployed"
