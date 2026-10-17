@@ -25,7 +25,7 @@ The **Date** box lists the weekdays of the scenario and starts on the first one 
 The **Observation minute** slider is minutes after 07:00 (the default 5 means 07:05).
 Leave every other sidebar setting at its default; the numbers below use the defaults.
 
-Tabs: Overview, Stations, Quality, Forecast, Diagnosis, Rebalancing. Every tab updates at once when a
+Tabs: Overview, Stations, Quality, Forecast. Every tab updates at once when a
 sidebar setting changes, except Forecast, which runs only when you click **Run forecast**.
 
 ---
@@ -148,22 +148,6 @@ The c chart does **not** flag the shift (all 20 windows in control, centre 157.6
 That is expected: a dock that stays faulty adds one onset and then none, so this chart counts how often
 stations break, not how long they stay broken.
 
-### 2.2 Diagnosis, return failures point to dock_fault / maintenance
-
-Tab **Diagnosis**. Scope "Sidebar date" with Date 2026-10-05:
-
-- Return failed: **1440 of 4500 attempts failed (32.0%)**, all of them `dock_fault`, which maps to
-  **maintenance (100.0%, 1440)**.
-- Rent failed: 5284 of 9000 (58.7%), all logged `no_bike`, which maps to **rebalancing (100.0%)**.
-
-Scope "All weekdays": return 14857 of 60047 failed (24.7%): dock_fault 14400 (**96.9%, maintenance**), no_dock
-457 (3.1%, rebalancing). Rent 60340 of 120234 failed (50.2%), all no_bike (rebalancing).
-
-How to read this: each logged failure reason is mapped to one action (no_bike and no_dock to
-rebalancing; bike_fault, dock_fault and station_closed to maintenance; app_error to data check).
-After 2026-10-05 the returns cannot be fixed by moving bikes, a technician is needed. The trees are
-qualitative: they give shares of logged failures, not probabilities.
-
 ---
 
 ## Scenario 3: edge_case (`data/edge_case.csv`)
@@ -190,15 +174,14 @@ attempts), 2 unknown minutes, coverage 99.4%.
 How to read this: when two snapshots for the same station and minute disagree, the tool rejects both and
 reports them, instead of silently choosing one. Minutes without a recent valid snapshot stay unknown (here 2 unknown minutes).
 
-### 3.2 Rebalancing at 07:12, S002 is stale
+### 3.2 Overview map at 07:12, S002 is stale
 
-Set the Observation minute slider to **12** (07:12) and open tab **Rebalancing**. No move is recommended.
-Under "Stations left out of moves": **S002**, reason "stale station data: last valid snapshot is 3 min old
-(stale_limit 2 min); 3 invalid status row(s) rejected (see Data issues)"; recommendation "data check, not a
-rebalancing move".
+Set the Observation minute slider to **12** (07:12) and look at the map on tab **Overview**. S002 is
+grey, "unknown / stale data": its last valid snapshot is 3 minutes old, more than `stale_limit` = 2
+(the three conflicting 07:06 rows were rejected, so they cannot fill the gap). S001 is green (usable).
 
-How to read this: the tool will not send a van on a reading it cannot trust. It tells the dispatcher to
-check the data first.
+How to read this: the tool never shows a station as usable on a reading it cannot trust; a stale minute
+is unknown, and it is left out of every rate.
 
 ### 3.3 Quality, one-day SPC limits are NA, with the reason
 
@@ -213,27 +196,6 @@ Tab **Quality** (Date 2026-09-21). With one weekday there is nothing to estimate
   ("no earlier weekday to estimate demand").
 
 How to read this: the tool prints NA with a reason, rather than a confident-looking number from too little data.
-
----
-
-## Rebalancing task-status demo (simulated)
-
-Any scenario works; the numbers here are from **baseline**, Date **2026-09-21**, Observation minute **5**
-(07:05, the defaults). Tab **Rebalancing**:
-
-1. "Recommended moves" lists 14 moves, the first being S002 to S001 (2 bikes, 0.58 km estimated).
-2. Click **Create simulated tasks from these moves**. Result: "Created 14 planned task(s): SIM-001 ...
-   SIM-014", all with status `planned` (SIM-001: S002 to S001, 2 bikes; SIM-002: S003 to S004, 1 bike; SIM-003:
-   S014 to S019, 7 bikes).
-3. Task **SIM-001**, Move to status **assigned**, Van **V1**, time **07:05**, click **Apply**:
-   "Accepted: SIM-001 planned -> assigned." (valid).
-4. Task SIM-001 again, Move to status **completed**, time 07:30, Bikes actually moved 1, click **Apply**:
-   "Rejected: invalid transition: assigned -> completed; allowed from assigned: in_progress, cancelled."
-   The table is unchanged.
-
-How to read this: tasks move forward only (planned, assigned, in_progress, completed; cancelled is also
-allowed before completion), a step cannot be skipped. The tasks are session-only simulations; they are not saved
-and do not feed the charts.
 
 ---
 

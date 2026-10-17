@@ -16,8 +16,8 @@ The examples after each `FILL IN` show the shape of an answer. They are not hint
 
 ## 2. User and use case (rubric: scope 5, user and use case 5)
 - **User:** the municipal bikeshare dispatcher who plans the rebalancing vans for the weekday morning rush. Example: "the supervisor who checks part diameters at the end of each shift"
-- **Decision the tool helps them make, and when:** during the 07:00-10:00 ET weekday rush: which stations to handle first; whether a problem needs rebalancing, maintenance or a data check; where to take bikes from, where to bring them and how many; and whether service improved afterwards (details: [`docs/methods.md`](docs/methods.md) section 2). Example: "whether to stop the line and recalibrate before the next shift starts"
-- **Why this matches the prompt:** it tracks dock availability minute by minute, shows when and where stations are unusable (empty or full), and replaces blind van dispatch with a ranked, statistically checked plan whose effect is measured.
+- **Decision the tool helps them make, and when:** during the 07:00-10:00 ET weekday rush: which stations to handle first (worst now, or most at risk in the next 10-30 minutes), and whether service is changing from week to week (details: [`docs/methods.md`](docs/methods.md) section 2). Example: "whether to stop the line and recalibrate before the next shift starts"
+- **Why this matches the prompt:** it tracks dock availability minute by minute, shows when and where stations are unusable (empty or full), and replaces blind van dispatch with a station ranking, control charts and a short-term risk forecast.
 
 ## 3. Inputs (rubric: minimal inputs 5)
 Only what this user can actually measure or already knows. Fewer is better; every input a user
@@ -29,7 +29,7 @@ cannot measure costs points.
 
 ## 4. The statistics, and why (rubric: valid QC analysis 25)
 Say the method in words before any code exists. Load the `stats-first-steering` skill first.
-- **Method:** tier 1: rent- and return-failure p charts, observed unusable share and coverage, an unusable-minute ranking and a greedy rebalancing plan; tiers 2-3: c chart, X-bar/R with Cpu/Cp/Cpk, a forward risk forecast with a day bootstrap, and fault trees (formulas in [`docs/methods.md`](docs/methods.md) 4.1-4.4). Example: "X-bar and R chart, subgroups of 5, limits from the average range"
+- **Method:** tier 1: rent- and return-failure p charts, observed unusable share and coverage, and an unusable-minute ranking; tier 2: c chart, X-bar/R with Cpu/Cp/Cpk, and a forward risk forecast with a day bootstrap (formulas in [`docs/methods.md`](docs/methods.md) 4.1-4.2 and 4.4). Example: "X-bar and R chart, subgroups of 5, limits from the average range"
 - **Why it fits the use case:** rent and return attempts are pass/fail (p charts), failure onsets are counts per weekday window (c chart), van response times come in subgroups of 3 (X-bar/R), and a dispatcher needs to know which stations are about to fail (forecast); the full reasoning is in [`docs/methods.md`](docs/methods.md) 4.2.
 - **Assumptions and how the tool checks them:** limits come from a stated baseline; Western Electric rules 1 and 4; a fixed station set with at least 95% coverage for SPC; a dispersion check for Poisson counts; stability and normality before Cpu; NA with a reason when a value cannot be estimated (full list in [`docs/methods.md`](docs/methods.md) 4.1-4.2). Example: "normality: histogram plus Shapiro-Wilk in the demo"
 - **Known-answer check:** for example KA-2: 5 rush windows of 100 rent attempts with 4, 6, 5, 3, 7 failures give p-bar = 0.050, UCL = 0.115, LCL = 0; every hand-worked check, KA-1 to KA-11, is in [`docs/methods.md`](docs/methods.md) 4.2.
@@ -53,7 +53,7 @@ Fixed for every team:
 - A small tool that runs beats a large tool that does not.
 
 ## 6. Outputs
-- **What the user sees:** a tabbed Shiny page (Overview, Stations, Quality, Forecast, Diagnosis, Rebalancing); every chart or number shows its unit, its sample size or coverage, and a one-line "how to read this" (tab contents in [`docs/methods.md`](docs/methods.md) section 6).
+- **What the user sees:** a tabbed Shiny page (Overview, Stations, Quality, Forecast); every chart or number shows its unit, its sample size or coverage, and a one-line "how to read this" (tab contents in [`docs/methods.md`](docs/methods.md) section 6).
   Example: "a control chart with out-of-control points in red, plus 'stop the line: yes/no'"
 
 ## 7. Test datasets and codebook (rubric: demo 10, datasets 5, codebook 5)

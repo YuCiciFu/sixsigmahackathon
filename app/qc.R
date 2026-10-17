@@ -1,7 +1,7 @@
 # app/qc.R - tier-1 core QC statistics for Rush Hour Autopilot (team 2027win)
 #
 # Plain base-R functions (base, stats, utils only). No plotting, no Shiny.
-# Every formula is written out in docs/methods.md sections 4.1-4.3 and checked
+# Every formula is written out in docs/methods.md sections 4.1-4.2 and checked
 # against a hand-worked known answer (KA-1 ... KA-11) in tests/.
 #
 # Contents
@@ -12,7 +12,7 @@
 #   5. p_chart (+ the run rule shared by the control charts)
 #   5b. count_onsets, c_chart (+ c_dispersion), response_subgroups, xbar_r_chart,
 #       capability_indices, normality_check   (tier 2, KA-6 and KA-7)
-#   6. rebalance_plan    (4.3)
+#   6. haversine_km      (used by app/forecast.R)
 
 # ---------------------------------------------------------------- constants
 SCENARIO_TABLES <- c("stations", "status", "attempts", "tasks")
@@ -841,7 +841,7 @@ normality_check <- function(x) {
   out
 }
 
-# ---------------------------------------------------------------- 6. rebalancing (methods 4.3)
+# ---------------------------------------------------------------- 6. distance (forecast: vans on the way)
 
 # Great-circle distance in km between points given in decimal degrees.
 haversine_km <- function(lat1, lon1, lat2, lon2) {
@@ -849,88 +849,4 @@ haversine_km <- function(lat1, lon1, lat2, lon2) {
   a <- sin((lat2 - lat1) * rad / 2)^2 +
     cos(lat1 * rad) * cos(lat2 * rad) * sin((lon2 - lon1) * rad / 2)^2
   2 * 6371.0088 * asin(pmin(1, sqrt(a)))
-}
-
-#' Greedy rebalancing plan (a demo heuristic, NOT an optimiser).
-#' Input : state = one row per station with station_id, bikes_available, docks_available,
-#'         is_renting, is_returning (the latest valid snapshot);
-#'         stations = station_id, latitude, longitude, capacity;
-#'         rank = optional data.frame(station_id, rank), 1 = worst (stations not listed
-#'         come last); target_fill (0.5), van_capacity (12 bikes), detour (1.3) are
-#'         demo assumptions.
-#' Method: target = round(target_fill * capacity). Surplus = bikes above target, deficit =
-#'         bikes below target. Closed stations (a flag FALSE or missing data) are left out
-#'         and get a maintenance / data-check recommendation. Deficit stations are taken
-#'         worst rank first (ties: station_id ascending); each gets ONE move from the
-#'         nearest station that still has surplus (haversine km * detour; ties: station_id
-#'         ascending). quantity = min(source surplus, destination deficit, destination free
-#'         docks, van_capacity). Planned bikes and docks are reserved, so nothing is
-#'         planned twice.
-#' Output: list(moves = from_station, to_station, quantity, est_distance_km, distance_basis;
-#'         excluded = station_id, reason, recommendation;
-#'         unmet = station_id, remaining_deficit after the moves).
-rebalance_plan <- function(state, stations, rank = NULL, target_fill = 0.5,
-                           van_capacity = 12, detour = 1.3) {
-  need_state <- c("station_id", "bikes_available", "docks_available", "is_renting", "is_returning")
-  need_stations <- c("station_id", "latitude", "longitude", "capacity")
-  if (length(setdiff(need_state, names(state))) > 0) {
-    stop("state needs columns: ", paste(need_state, collapse = ", "), call. = FALSE)
-  }
-  if (length(setdiff(need_stations, names(stations))) > 0) {
-    stop("stations needs columns: ", paste(need_stations, collapse = ", "), call. = FALSE)
-  }
-  pos <- match(state$station_id, stations$station_id)
-  if (anyNA(pos)) stop("state has a station_id that is not in stations.", call. = FALSE)
-  d <- data.frame(station_id = state$station_id, bikes = state$bikes_available,
-                  docks = state$docks_available, renting = state$is_renting,
-                  returning = state$is_returning, capacity = stations$capacity[pos],
-                  lat = stations$latitude[pos], lon = stations$longitude[pos],
-                  stringsAsFactors = FALSE)
-  d <- d[order(d$station_id, method = "radix"), ]
-
-  no_data <- is.na(d$bikes) | is.na(d$docks) | is.na(d$renting) | is.na(d$returning)
-  closed <- no_data | !d$renting | !d$returning
-  excluded <- data.frame(
-    station_id = d$station_id[closed],
-    reason = ifelse(no_data[closed], "missing station data", "renting or returning is switched off"),
-    recommendation = ifelse(no_data[closed], "data check, not a rebalancing move",
-                            "maintenance or data check, not a rebalancing move"),
-    stringsAsFactors = FALSE)
-  a <- d[!closed, ]
-  target <- round(target_fill * a$capacity)
-  surplus <- pmax(a$bikes - target, 0)
-  deficit <- pmax(target - a$bikes, 0)
-  free_docks <- a$docks
-
-  rank_value <- rep(0, nrow(a))
-  if (!is.null(rank)) {
-    rank_value <- rank$rank[match(a$station_id, rank$station_id)]
-    rank_value[is.na(rank_value)] <- Inf
-  }
-  todo <- which(deficit > 0)
-  todo <- todo[order(rank_value[todo], a$station_id[todo], method = "radix")]
-
-  moves <- list()
-  for (i in todo) {
-    sources <- which(surplus > 0)
-    if (length(sources) == 0) break
-    km <- haversine_km(a$lat[i], a$lon[i], a$lat[sources], a$lon[sources]) * detour
-    best <- sources[order(round(km, 9), a$station_id[sources], method = "radix")[1]]
-    qty <- min(surplus[best], deficit[i], free_docks[i], van_capacity)
-    if (qty <= 0) next
-    surplus[best] <- surplus[best] - qty
-    deficit[i] <- deficit[i] - qty
-    free_docks[i] <- free_docks[i] - qty
-    moves[[length(moves) + 1]] <- data.frame(
-      from_station = a$station_id[best], to_station = a$station_id[i], quantity = qty,
-      est_distance_km = round(haversine_km(a$lat[best], a$lon[best], a$lat[i], a$lon[i]) * detour, 2),
-      distance_basis = "estimated travel distance (straight line x detour factor), not a road route",
-      stringsAsFactors = FALSE)
-  }
-  moves <- if (length(moves) > 0) do.call(rbind, moves) else
-    data.frame(from_station = character(0), to_station = character(0), quantity = numeric(0),
-               est_distance_km = numeric(0), distance_basis = character(0))
-  unmet <- data.frame(station_id = a$station_id[deficit > 0], remaining_deficit = deficit[deficit > 0],
-                      stringsAsFactors = FALSE)
-  list(moves = moves, excluded = excluded, unmet = unmet)
 }

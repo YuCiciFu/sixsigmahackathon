@@ -1,7 +1,7 @@
 # app/prep.R - data shaping for the dashboard (team 2027win)
 #
 # Plain base-R helpers. NO statistics are computed here: every control limit, rate and
-# plan comes from app/qc.R. These functions only pick rows, count rows, sort and join.
+# forecast comes from app/qc.R or app/forecast.R. These functions only pick rows, count rows, sort and join.
 # (Counting attempts and failures is counting rows of the attempt log; failures are
 # never inferred from inventory.)
 #
@@ -10,13 +10,13 @@
 #   2. attempts               attempts_by_day
 #   3. grids                  fixed_station_set, build_day_grids, window_table,
 #                             set_warning_threshold
-#   4. one day                state_at, explain_exclusion, station_popup, rank_stations, station_table,
+#   4. one day                state_at, station_popup, rank_stations, station_table,
 #                             kpi_summary
-#   5. charts' inputs         hour_station_matrix, pareto_order
+#   5. charts' inputs         hour_station_matrix
 #   6. baseline               baseline_count, baseline_flags
 #   7. data source            builtin_scenarios, default_scenario_path
 #   8. data health            table_health, table_block_message, issue_summary, issue_detail,
-#                             signal_label, as_whole_numbers
+#                             signal_label
 #   8b. tier 2 tables         onset_window_table, c_chart_table, xbar_r_table, capability_table
 #  11. Now forecast display  forecast_p_text, forecast_table_display, forecast_boot_display, forecast_transit_display,
 #                            forecast_rate_display, forecast_plot_data (numbers from app/forecast.R)
@@ -128,41 +128,6 @@ state_at <- function(grid, minute_offset) {
   g
 }
 
-# Explain why rebalance_plan() left a station out. qc.R only says "missing station data"
-# when the state at the chosen minute is unknown; this splits that into what really happened,
-# using the validated status rows (rejected rows are not in `status`) and the issues table:
-#   - "stale station data": a valid snapshot exists at or before the minute, but it is older
-#     than stale_limit (its age is shown);
-#   - "missing station data": no valid snapshot at or before the minute;
-#   - either one gets "+ N invalid status row(s) rejected" when the loader rejected status
-#     rows for that station (see the Data issues table).
-# Other reasons (e.g. renting or returning switched off) are passed through unchanged.
-# Output: `excluded` with a `detail` column added.
-explain_exclusion <- function(excluded, status, at_time, stale_limit, issues = NULL) {
-  if (is.null(excluded) || nrow(excluded) == 0) return(excluded)
-  detail <- excluded$reason
-  rejected <- if (is.null(issues) || nrow(issues) == 0) character(0) else
-    issues$id[issues$table == "status" & issues$action == "rejected"]
-  for (i in seq_len(nrow(excluded))) {
-    if (excluded$reason[i] != "missing station data") next
-    id <- excluded$station_id[i]
-    ts <- status$timestamp[status$station_id == id & !is.na(status$timestamp)]
-    ts <- ts[as.numeric(ts) <= as.numeric(at_time)]
-    detail[i] <- if (length(ts) == 0) {
-      "missing station data: no valid snapshot at or before this minute"
-    } else {
-      age <- (as.numeric(at_time) - max(as.numeric(ts))) / 60
-      sprintf("stale station data: last valid snapshot is %s min old (stale_limit %s min)",
-              format(round(age, 1)), format(stale_limit))
-    }
-    n_bad <- sum(rejected == id)
-    if (n_bad > 0) detail[i] <- sprintf("%s; %d invalid status row(s) rejected (see Data issues)",
-                                        detail[i], n_bad)
-  }
-  excluded$detail <- detail
-  excluded
-}
-
 # Map popup HTML for each station. Names and IDs come from the uploaded file, so they are
 # HTML-escaped. A count that is NA (unknown/stale minute) is shown as "unknown", never "NA".
 station_popup <- function(name, id, state, bikes, docks) {
@@ -228,18 +193,6 @@ hour_station_matrix <- function(grid) {
   combos$known_min <- vapply(seq_len(nrow(combos)),
     function(i) sum(grid$known[pick(i)]), numeric(1))
   combos
-}
-
-# Pareto order: stations by either-unusable minutes, largest first (ties: station_id),
-# with the cumulative share of all either-unusable minutes (NA when the total is 0).
-pareto_order <- function(summary) {
-  if (is.null(summary) || nrow(summary) == 0) return(data.frame())
-  out <- summary[order(-summary$either_unusable_min, summary$station_id, method = "radix"),
-                 c("station_id", "either_unusable_min")]
-  total <- sum(out$either_unusable_min)
-  out$cum_share <- if (total > 0) cumsum(out$either_unusable_min) / total else NA_real_
-  rownames(out) <- NULL
-  out
 }
 
 # ---------------------------------------------------------------- 6. baseline
@@ -369,12 +322,6 @@ signal_label <- function(ooc, overdispersed, model = "binomial") {
   ifelse(is.na(ooc), "not assessed",
          ifelse(ooc, if (warn) paste0("beyond ", model, " limit (investigate; not a confirmed special cause)") else "OUT OF CONTROL",
                 if (warn) "within limits" else "in control"))
-}
-
-# Columns that hold whole-number counts -> integer, so tables print "2", not "2.00".
-as_whole_numbers <- function(df, cols) {
-  for (col in intersect(cols, names(df))) df[[col]] <- as.integer(round(df[[col]]))
-  df
 }
 
 # ---------------------------------------------------------------- 8b. tier 2 inputs and tables (H-11)
@@ -519,94 +466,4 @@ forecast_plot_data <- function(f, top = 10) {
                    lo = col(paste0("boot_lo_rent_", h)), hi = col(paste0("boot_hi_rent_", h))),
         data.frame(station = tb$station_id, type = "return-unusable", p = tb[[paste0("p_return_", h)]], se = tb[[paste0("se_return_", h)]],
                    lo = col(paste0("boot_lo_return_", h)), hi = col(paste0("boot_hi_return_", h))))
-}
-
-# ---------------------------------------------------------------- 13. Diagnosis display (H-17)
-# Scope and wording only; every number comes from app/faulttree.R.
-
-# Attempts that fall inside the 07:00-10:00 window of the given dates (one date or all weekdays).
-scope_attempts <- function(attempts, dates, start = "07:00", end = "10:00", tz = APP_TZ) {
-  if (length(dates) == 0) return(attempts[0, ])
-  secs <- as.numeric(attempts$timestamp)
-  keep <- rep(FALSE, length(secs))
-  for (d in dates) {
-    b <- window_bounds(d, start, end, tz)
-    keep <- keep | (!is.na(secs) & secs >= as.numeric(b$start) & secs < as.numeric(b$end))
-  }
-  attempts[keep, ]
-}
-
-# Stack the day grids of the chosen dates into one grid (station + minute is unique across days).
-pooled_grid <- function(grids, dates) {
-  if (length(dates) == 0) return(NULL)
-  do.call(rbind, unname(grids[dates]))
-}
-
-# "60.0% (6)" or "n/a" (a share that is not defined).
-share_count_text <- function(share, count) {
-  ifelse(is.na(share), paste0("n/a (", count, ")"), paste0(sprintf("%.1f", 100 * share), "% (", count, ")"))
-}
-
-# Action table: counts and shares of failed attempts after the contradiction rule, with the logged view.
-fault_action_display <- function(ft) {
-  data.frame(action = ft$by_action$action,
-             `as logged (before the status rule)` = share_count_text(ft$logged_by_action$share, ft$logged_by_action$count),
-             `after the status rule` = share_count_text(ft$by_action$share, ft$by_action$count),
-             check.names = FALSE, stringsAsFactors = FALSE)
-}
-
-# Logged reasons with their action.
-fault_reason_display <- function(ft) {
-  data.frame(`logged reason` = ft$by_reason$reason, `points to` = ft$by_reason$action,
-             `failed attempts (share)` = share_count_text(ft$by_reason$share, ft$by_reason$count),
-             check.names = FALSE, stringsAsFactors = FALSE)
-}
-
-# One line per failure type: n, failed, failed share, the rule counts.
-fault_summary_text <- function(ft) {
-  label <- if (ft$type == "rent") "Rent" else "Return"
-  share <- if (is.na(ft$failed_share)) paste0("n/a (", ft$failed_share_reason, ")")
-           else paste0(sprintf("%.1f", 100 * ft$failed_share), "%")
-  rule <- if (!ft$rule_applied) "status/attempt rule not applied (no usable status records)."
-          else paste0(ft$reclassified, " reclassified as data check (status contradicts the log); ",
-                      ft$not_checked, " could not be checked (unknown minute); ", ft$checked, " checked.")
-  paste0(label, " failures: ", ft$n_failed, " of ", ft$n, " attempts failed (", share, "). ", rule,
-         if (nzchar(ft$shares_reason)) paste0(" Shares: ", ft$shares_reason, ".") else "")
-}
-
-# Per-station table text: counts per action and the top cause.
-fault_station_display <- function(st, top = 10) {
-  if (nrow(st) == 0) return(data.frame(note = "No failed attempts in this scope."))
-  st <- utils::head(st, top)
-  st <- as_whole_numbers(st, c("n_failed", "rebalancing", "maintenance", "data check", "data_check"))
-  names(st)[names(st) == "n_failed"] <- "failed attempts"
-  names(st)[names(st) == "top_cause"] <- "top cause"
-  st
-}
-
-# ---- Simulated task table (H-18): formatting only; the rules are in tasks.R
-# The task table for the page: times as New York clock text (HH:MM), empty cells as "".
-tasks_display <- function(tasks, tz = APP_TZ) {
-  if (is.null(tasks) || nrow(tasks) == 0) return(data.frame(note = "No simulated tasks yet."))
-  clock <- function(x) ifelse(is.na(x), "", format(x, "%H:%M", tz = tz))
-  text <- function(x) ifelse(is.na(x), "", as.character(x))
-  data.frame(task_id = tasks$task_id, status = tasks$status, from = tasks$source_station_id,
-             to = tasks$destination_station_id, planned_bikes = tasks$planned_quantity,
-             actual_bikes = text(tasks$actual_quantity), van_id = text(tasks$van_id),
-             assigned = clock(tasks$assigned_at), arrived = clock(tasks$arrived_at),
-             completed = clock(tasks$completed_at), stringsAsFactors = FALSE)
-}
-
-# The time for a move: the chosen date + observation minute (minutes after 07:00), New York clock.
-task_time_default <- function(date, minute, tz = APP_TZ) {
-  format(as.POSIXct(paste(date, "07:00:00"), tz = tz) + 60 * minute, "%H:%M", tz = tz)
-}
-
-# Read "HH:MM" on a date as a POSIXct (New York); NA when the text is not a valid time.
-task_time_parse <- function(date, text, tz = APP_TZ) {
-  text <- trimws(as.character(text))
-  if (length(text) != 1 || is.na(text) || !grepl("^([01][0-9]|2[0-3]):[0-5][0-9]$", text)) {
-    return(as.POSIXct(NA, tz = tz))
-  }
-  as.POSIXct(paste0(date, " ", text, ":00"), tz = tz)
 }
