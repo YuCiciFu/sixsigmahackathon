@@ -1,0 +1,7 @@
+"scenario","version","status","attempts","tasks","issues"
+"baseline","original",0,0,0,240775
+"baseline","offset normalized in memory",150500,90215,60,0
+"planted_shift","original",0,0,0,330841
+"planted_shift","offset normalized in memory",150500,180281,60,0
+"edge_case","original",0,0,0,954
+"edge_case","offset normalized in memory",596,355,0,3

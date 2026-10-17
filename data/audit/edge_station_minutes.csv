@@ -1,0 +1,3 @@
+"station_id","known_min","unknown_min","coverage","rent_unusable_min","return_unusable_min","either_unusable_min","warn_bike_min","warn_dock_min","either_share"
+"S001",180,0,1,0,0,0,0,0,0
+"S002",178,2,0.988888888888889,65,0,65,46,0,0.365168539325843

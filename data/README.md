@@ -52,3 +52,8 @@ After generation, run `python3 tests/validate_schema.py` and `python3 data/check
 `data/run_h02.command` regenerates (overwriting the three CSVs) and runs both validators. It uses Rscript from PATH, or an executable specified with RSCRIPT_BIN. In the original local task workspace it also recognizes the isolated runtime at ../../work/r-runtime/bin/Rscript relative to the repository. No runtime is bundled in this repository.
 
 Validation note for this seed: the planted return-p chart signals on weekdays 9 and 10 as well as 11–20 when limits are estimated from weekdays 1–10. The I-MR chart signals exactly on weekdays 11–20. This demonstrates detection of the planted change but does not establish a statistically in-control pre-change p-chart baseline. Further calibration and application-level review remain necessary before calling the complete H-02 statistical acceptance finished.
+
+
+## H-03 audit of published b07d1a3
+
+See [audit/README.md](audit/README.md) and the accompanying daily result tables for a version-pinned recomputation with the merged H-03 functions. The original timestamps use -0400, which H-03 rejects; the audit normalizes offsets in memory only. Both large scenarios have p-chart signals before the engineered intervention, and the baseline scenario is not in control on its p charts. The previous Python checker is a limited fixture check and is not authoritative for H-03 control signals (it omitted lower-limit and run-rule signals). Full H-02 acceptance remains open. The original generator and CSVs are unchanged.
