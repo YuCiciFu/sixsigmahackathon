@@ -7,7 +7,7 @@ three files in `data/`: `baseline.csv`, `planted_shift.csv` and `edge_case.csv`.
 here is a measurement of a real bikeshare system. Every number below was produced by running the
 app's own functions on these files with the app's default settings; `demo/print_demo_numbers.R`
 reprints all of them (see "Re-check the numbers"). Where the tool needs an assumption
-(`stale_limit` = 2 min, 95% minimum coverage, baseline = first half of the weekdays, vans, speed,
+(`stale_limit` = 2 min, 95% minimum coverage, baseline = first half of the weekdays, van speed,
 and so on), the sidebar says it is a demo assumption.
 
 ## Start the app
@@ -25,7 +25,8 @@ The **Date** box lists the weekdays of the scenario and starts on the first one 
 The **Observation minute** slider is minutes after 07:00 (the default 5 means 07:05).
 Leave every other sidebar setting at its default; the numbers below use the defaults.
 
-Tabs: Overview, Stations, Quality, Forecast & Reliability, Diagnosis, Rebalancing, Improvement.
+Tabs: Overview, Stations, Quality, Forecast, Diagnosis, Rebalancing. Every tab updates at once when a
+sidebar setting changes, except Forecast, which runs only when you click **Run forecast**.
 
 ---
 
@@ -52,42 +53,34 @@ How to read this: an unusable minute is a station-minute with no bike to rent or
 to; the share is out of known minutes only, and unknown minutes are never counted as usable.
 The bottom panel "Data issues" says "No data issues found" for this file.
 
-### 1.2 Quality, p charts, with the dispersion warning
+### 1.2 Quality, p charts
 
 Tab **Quality**. Limits come from the baseline: the first 10 of the 20 weekdays.
 
-- **Rent p chart:** centre 26.79%; the first-day limits are LCL 24.37% and UCL 29.20%. Dispersion box:
-  X2 = 49.0 on 9 df, ratio 5.45, p < 0.0001, **warning**. 7 of the 20 weekdays are drawn beyond the
-  limits (2026-09-29, 10-02, 10-08, 10-09, 10-12, 10-15, 10-16).
-- **Return p chart:** centre 2.05%; limits LCL 0.95% and UCL 3.15% on the first day. Dispersion:
-  X2 = 126.5 on 9 df, ratio 14.06, p < 0.0001, **warning**. 7 of 20 weekdays are beyond the limits
-  (2026-09-23, 09-24, 09-28, 09-29, 10-07, 10-12, 10-16).
+- **Rent p chart:** centre 26.79%; the first-day limits are LCL 24.37% and UCL 29.20%. 7 of the 20
+  weekdays are marked **OUT OF CONTROL** (2026-09-29, 10-02, 10-08, 10-09, 10-12, 10-15, 10-16).
+- **Return p chart:** centre 2.05%; limits LCL 0.95% and UCL 3.15% on the first day. 7 of 20 weekdays
+  are marked **OUT OF CONTROL** (2026-09-23, 09-24, 09-28, 09-29, 10-07, 10-12, 10-16).
 
-How to read this: the warning says the daily failure rate varies more than a pure binomial model
-allows, so the limits are too narrow. The tool therefore labels such points "beyond binomial limit
-(investigate; not a confirmed special cause)" and does not call them real special causes.
-So on the baseline file the p charts do **not** show a clean in-control process, and we do not claim
-they do. That is the tool being honest about its own assumption.
+How to read this: the limits assume a binomial model, where every attempt in a window fails
+independently with the same probability. This file was generated without a planted change, yet 7 of
+20 weekdays fall outside the limits on each chart. That points to the assumption, not to 7 real
+special causes: attempts at the same station and time are not independent, so the daily rate varies
+more than the binomial limits allow, and the limits are too narrow. Treat these points as a prompt to
+investigate. The tool states the assumption on the page but does not test it. We do **not** claim the
+baseline p charts show a clean in-control process.
 
-### 1.3 Quality, I-MR chart in control
+### 1.3 Quality, c chart
 
-Same tab, "I-MR chart". Fixed station set of 25 stations; all 20 windows have enough coverage.
-Baseline = first 10 windows: centre **29.08**, UCL **37.43**, LCL **20.73** (% of known
-station-minutes). All 20 points read **in control** (the highest is 34.36% on 2026-09-29).
-
-How to read this: one point per weekday rush window; a point beyond the limits (or a run of 8 on one
-side) would be red. None is, so the daily unusable share is stable here.
-
-### 1.4 Quality, c chart
-
-Same tab, "c chart". Counts of anomaly onsets per window: centre **157.9**, UCL **195.597**, LCL
-**120.203**. All 20 windows are "within limits" (range 133 to 188). Dispersion box: variance 300.77
-/ mean 157.90 = 1.90, a **warning** (clusters of events: limits likely too narrow).
+Same tab, "c chart". All 20 windows have enough coverage (fixed set of 25 stations). Counts of anomaly
+onsets per window: centre **157.9**, UCL **195.597**, LCL **120.203**. All 20 windows are "within
+limits" (range 133 to 188). Dispersion box: variance 300.77 / mean 157.90 = 1.90, a **warning**
+(clusters of events: limits likely too narrow).
 
 How to read this: it counts how many separate unusable episodes began in each window, not how long
-they lasted. Read the I-MR chart for the level and this chart for how often problems start.
+they lasted. The Overview and Stations tabs show the level of unusable time.
 
-### 1.5 Quality, X-bar/R and Cpu with USL = 12 (an example input)
+### 1.4 Quality, X-bar/R and Cpu with USL = 12 (an example input)
 
 Same tab, "X-bar and R chart" (van response time, minutes from assigned to arrived). 20 subgroups
 of the first 3 completed tasks per window; the first three subgroups are 9, 10, 11 minutes (mean 10,
@@ -109,27 +102,15 @@ every subgroup is the same 9, 10 and 11 minutes, so this Cpu only demonstrates t
 (Cpu = (USL - mean) / (3 x sigma-hat) = (12 - 10) / (3 x 1.181)). It says nothing about a real fleet.
 Sigma-hat comes from the average range (R-bar/d2), so these are Cp/Cpk, not Pp/Ppk.
 
-### 1.6 Forecast & Reliability, History (Kaplan-Meier)
+### 1.5 Forecast, Now at 2026-10-05 07:30
 
-Tab **Forecast & Reliability**, panel "History". Failure type: Either unusable; Days used: all
-weekdays. Numbers: 20 weekdays; **n = 471** station-days usable at 07:00; 337 failures; 134 censored at
-10:00; 29 left out because already unusable at 07:00.
+First, with the default Date **2026-09-21** (the first weekday), open tab **Forecast**: a yellow box
+says there are no earlier weekdays to estimate demand from and offers two buttons, "Use the first date
+with history (2026-09-22)" and "Use the latest date (2026-10-16)". The tool never uses the chosen day or
+later days for the forecast (no look-ahead).
 
-| Minutes after a usable 07:00 | F(t) = share failed by t [95% CI] |
-|---|---|
-| 10 | 0.132 [0.104, 0.166] |
-| 20 | 0.231 [0.196, 0.272] |
-| 30 | 0.333 [0.293, 0.378] |
-
-RMST to 180 min: **87.05 min**. MTTF: n/a (the curve does not reach 0).
-
-How to read this: descriptive about past days, not a forecast. About one usable station in three has had
-its first unusable minute within 30 minutes of 07:00.
-
-### 1.7 Forecast & Reliability, Now forecast at 2026-10-05 07:30
-
-Set Date **2026-10-05** and slide Observation minute to **30**. In panel "Now" keep R = 2000 and seed
-1, then click **Run forecast**. The banner says 25 of 25 stations forecast from 10 earlier weekdays
+Now set Date **2026-10-05** and slide Observation minute to **30**. Keep R = 2000, seed 1 and van speed
+20 km/h, then click **Run forecast** (about 3 seconds). The banner says 25 of 25 stations forecast from 10 earlier weekdays
 (45153 attempts). Sample rows (probability of at least one unusable minute within 30 minutes, with the
 simulation SE):
 
@@ -143,35 +124,6 @@ How to read this: a station that is already empty (or full) at 07:30 has risk 1 
 so in the last column; the model (Poisson demand from earlier weekdays only, stations independent) matters
 for stations that are not yet unusable. It is a model, not a measurement.
 
-### 1.8 Improvement, three policies on 2026-10-05
-
-Keep Date **2026-10-05**. Tab **Improvement**: Seeds R = **30**, Base seed = **1**, then click **Run
-comparison** (about half a minute). Result banner: seeds 1 to 30, 25 stations, 2 vans, 4474 true
-attempts, predictive history = 10 earlier weekdays.
-
-Per-policy means over the 30 seeds:
-
-| Policy | Mean either-unusable station-minutes | Mean failed attempts % | Mean van km |
-|---|---|---|---|
-| none (no rebalancing) | 1982.50 | 29.55 | 0.00 |
-| reactive | 1978.43 | 29.52 | 14.47 |
-| predictive | 1978.10 | 29.52 | 14.31 |
-
-Primary metric, paired differences (first minus second; positive means the second policy is better),
-Bonferroni 98.333% intervals:
-
-| Pair | Mean difference | CI low | CI high |
-|---|---|---|---|
-| none - reactive | 4.067 | -0.8924 | 9.026 |
-| none - predictive | 4.4 | -0.1332 | 8.933 |
-| reactive - predictive | 0.3333 | -1.02 | 1.686 |
-
-**Every one of the three primary intervals contains 0: no difference was detected between the
-policies.** That is not evidence that the policies are equivalent, and we do not claim any policy
-wins. How to read this: the tool judges all three policies on the same simulated riders (paired seeds).
-Demand is replayed from that morning's own rates, the predictive policy only knows earlier days, and
-the intervals cover simulation seeds only, not estimation error in the rates. All of it is simulated.
-
 ---
 
 ## Scenario 2: planted_shift (`data/planted_shift.csv`)
@@ -180,17 +132,21 @@ Same 25 stations. The first 10 weekdays are normal; **from weekday 11 (2026-10-0
 plants return-side dock faults and a demand surge. This is engineered, to show the tool reacting.
 Select **planted_shift** (the first screen after switching can take longer; the file is large).
 
-### 2.1 Quality, the I-MR chart jumps from 2026-10-05
+### 2.1 Quality, the return p chart jumps from 2026-10-05
 
-Tab **Quality**, "I-MR chart". Baseline = first 10 windows: centre **28.69**, UCL **35.44**, LCL
-**21.94**. Weekdays 1 to 10 are in control (24.93% to 30.96%). From 2026-10-05 every window is **OUT OF
-CONTROL** (10 windows, from 89.53% to 91.04%).
+Tab **Quality**, "p chart: return failure proportion". Baseline = first 10 weekdays: centre **3.00%**
+(first-day limits 1.67% to 4.33%). From 2026-10-05 every weekday is **OUT OF CONTROL**: 32.00% to 32.04%
+return failures (1440 to 1442 of 4500 attempts) against a UCL of 3.77%.
 
-How to read this: red points far above the upper limit mean the share of unusable station-minutes has
-shifted from about 29% to about 90% and stayed there. Also, the return p chart shows 32.0% to 32.04%
-return failures on every weekday from 2026-10-05 against a UCL of 3.77%; the dispersion warnings
-(rent ratio 3.90, return ratio 10.11) still apply to the baseline limits. In this file the return p chart
-also signals on some baseline days (2026-09-21, 09-30, 10-01, 10-02), a reminder that its limits are narrow.
+How to read this: the return failure rate has shifted from about 3% to about 32% and stayed there,
+far beyond the limits. In this file the return p chart also marks 4 baseline days (2026-09-21, 09-30,
+10-01, 10-02), a reminder that the binomial limits are narrow (see 1.2); the jump from 2026-10-05 is
+about ten times larger than those. The rent p chart marks 11 of 20 weekdays, including every weekday
+from 2026-10-05 (the planted demand surge).
+
+The c chart does **not** flag the shift (all 20 windows in control, centre 157.6, variance/mean 0.92).
+That is expected: a dock that stays faulty adds one onset and then none, so this chart counts how often
+stations break, not how long they stay broken.
 
 ### 2.2 Diagnosis, return failures point to dock_fault / maintenance
 
@@ -207,24 +163,6 @@ How to read this: each logged failure reason is mapped to one action (no_bike an
 rebalancing; bike_fault, dock_fault and station_closed to maintenance; app_error to data check).
 After 2026-10-05 the returns cannot be fixed by moving bikes, a technician is needed. The trees are
 qualitative: they give shares of logged failures, not probabilities.
-
-### 2.3 Forecast & Reliability, History: days 1-10 versus all weekdays
-
-Panel "History", failure type Either unusable.
-
-1. Days used: choose **"Weekdays up to and including the sidebar date"** with Date **2026-10-02** (day 10).
-2. Then choose **"All weekdays in the file"**.
-
-| Days used | n (usable at 07:00) | F(10) | F(20) | F(30) [95% CI] | RMST to 180 min |
-|---|---|---|---|---|---|
-| Days 1-10 (to 2026-10-02) | 238 | 0.101 | 0.214 | 0.353 [0.296, 0.417] | 86.89 min |
-| All 20 weekdays | 403 | 0.221 | 0.447 | 0.610 [0.563, 0.658] | 56.87 min |
-
-(Station-days already unusable at 07:00 and so left out: 12 for days 1-10, 97 for all 20 weekdays.)
-
-How to read this: after the shift, stations fail sooner. The share failed within 30 minutes rises from
-about 35% to 61%, and the average minutes before the first failure (RMST) drop from about 87 to
-57. The 20-day curve mixes both regimes, so it is a blend, not the new regime alone.
 
 ---
 
@@ -269,8 +207,10 @@ Tab **Quality** (Date 2026-09-21). With one weekday there is nothing to estimate
 - Rent p chart: centre 18.31% but limits not drawn: "fewer than 2 baseline subgroups: limits cannot be estimated".
 - Return p chart: "n = 0 for some subgroups: p is NA for those subgroups; fewer than 2 baseline subgroups:
   limits cannot be estimated".
-- I-MR chart (2 stations, 1 window, 18.16%): "fewer than 2 baseline points: limits cannot be estimated"; the
-  point reads "not assessed".
+- c chart (2 stations, 1 window, 4 onsets): "fewer than 2 baseline windows: limits cannot be estimated"; the
+  point reads "not assessed", and the dispersion check says it cannot be estimated.
+- Forecast: the only date has no earlier weekday, so the tab shows the yellow box and no forecast runs
+  ("no earlier weekday to estimate demand").
 
 How to read this: the tool prints NA with a reason, rather than a confident-looking number from too little data.
 
@@ -306,8 +246,8 @@ functions and defaults as the app (it starts no server). From the repo root:
 Rscript demo/print_demo_numbers.R
 ```
 
-It takes one to two minutes. Output is deterministic (the simulations use fixed seeds); two runs gave
-identical numbers. Numbers in this README were produced with R 4.5.2 on 2026-10-17.
+It takes about one minute. Output is deterministic (the forecast uses a fixed seed). Numbers in this
+README were produced with R 4.5.2 on 2026-10-17, after the H-19 scope reduction.
 
 ## Checked by a teammate who did not write this
 

@@ -70,6 +70,7 @@ tasks:
       passes, including one test that reproduces the SPEC section 4
       known-answer check and one degenerate case (constant data or n = 1).
     result: "done: testthat::test_dir('tests') 328 pass incl. KA-1..KA-5b/KA-11 and degenerate cases; stats-reviewer OVERALL PASS (twice); approved by YuCiciFu 2026-10-16 23:22 (no other teammate review recorded)"
+    scope_change: "removed from the tool in H-19 (2026-10-17, team request): the I-MR chart (KA-3), the p chart's Pearson dispersion check and paired_diff_ci (KA-5, KA-5b); the p chart, grid, rebalancing plan and their tests stay; the result above is the record at the time"
 
   - id: H-04
     title: Working tool - one demo copied to app/ and wired to the H-03 function
@@ -213,6 +214,7 @@ tasks:
       Rscript -e "testthat::test_dir('tests')" passes; a Playwright check of the
       Improvement tab on data/baseline.csv shows the paired CI table.
     result: "done: test-sim.R 131 and test_dir 467 pass (KA-4b, conservation at every event, same seed, KA-5/5b); Playwright shows the paired CI table on baseline 2026-10-05 (d 3.933, 98.333% CI [-2.615, 10.48]); stats-reviewer PASS after the lazy-evaluation fix; check-in confirmed by YuCiciFu 2026-10-17"
+    scope_change: "removed in H-19 (2026-10-17, team request): the policy simulation, the Improvement tab and their tests; sim.R keeps only the demand functions the forecast uses; the result above is the record at the time"
 
   - id: H-11
     title: c chart, X-bar/R for response time, Cpu with an operator-entered USL
@@ -239,6 +241,7 @@ tasks:
       usable 07:00 starts (NA with a reason) and censoring at unknown gaps;
       Rscript -e "testthat::test_dir('tests')" passes.
     result: "done: test-survival.R 75 and test_dir 656 pass (KA-8, no usable 07:00 starts NA with reason, censoring at unknown gaps); stats-reviewer PASS (matches survival::survfit on 300 random samples); Playwright shows the History panel on baseline and planted_shift; check-in authorised by YuCiciFu 2026-10-17"
+    scope_change: "removed in H-19 (2026-10-17, team request): Kaplan-Meier, Greenwood, RMST, MTTF, the History panel, app/survival.R and tests/test-survival.R; the result above is the record at the time"
 
   - id: H-13
     title: Forecast step 5a, fixed Poisson rates (Now panel)
@@ -278,6 +281,7 @@ tasks:
       streams across the 3 policies for each seed and KA-5 (primary at 98.333%, secondary
       labelled unadjusted 95%); Rscript -e "testthat::test_dir('tests')" passes.
     result: "done: test-sim.R 337 and test_dir 1236 pass (identical demand streams across the 3 policies per seed, KA-5 primary 98.333% / secondary unadjusted 95%, KA-5b, no look-ahead for the policy); reworked: true demand = the chosen morning's own rates, the predictive policy knows only earlier weekdays (no oracle); stats-reviewer PASS; Playwright: every primary CI contains 0 on baseline and planted_shift"
+    scope_change: "removed in H-19 (2026-10-17, team request): the predictive policy, the 3-policy comparison and Bonferroni intervals; the result above is the record at the time"
 
   - id: H-16
     title: Empirical availability and R(tau) for series, parallel and k-out-of-n
@@ -291,6 +295,7 @@ tasks:
       zero known minutes giving NA; the independence value is shown only as a contrast;
       Rscript -e "testthat::test_dir('tests')" passes.
     result: "done: test-reliability.R 52 and test_dir 905 pass (KA-9 incl. independence contrasts 0.36 and 0.84; zero known minutes NA with reason; independence shown only as a contrast); stats-reviewer PASS (real-data values recomputed independently); Playwright shows the availability/R(tau) card"
+    scope_change: "removed in H-19 (2026-10-17, team request): availability and R(tau) for series, parallel and k-out-of-n, the R(tau) panel, app/reliability.R and tests/test-reliability.R (Overview observed share and coverage stay); the result above is the record at the time"
 
   - id: H-17
     title: Qualitative fault trees and the cause mapping (Diagnosis tab)
@@ -317,3 +322,31 @@ tasks:
       section 7 transition and time rules with invalid moves rejected; a Playwright check
       shows a valid move accepted and an invalid one rejected on the page.
     result: "done: test-tasks.R 193 and test_dir 1154 pass (all allowed transitions accepted, disallowed and field-rule violations rejected with reasons, one active task per van); Playwright: planned -> assigned -> in_progress -> completed accepted, assigned -> completed rejected with the reason, table unchanged; also removes the empty numeric inputs' NA browser warnings"
+
+  # H-19: scope reduction requested and authorised by YuCiciFu on 2026-10-17 (task and owns
+  # explicitly approved in chat). The removed features' history stays in H-03, H-10, H-12, H-15
+  # and H-16 and in git; their scope_change lines say what was taken out.
+
+  - id: H-19
+    title: Scope reduction - remove I-MR, p-chart dispersion, Kaplan-Meier, the policy comparison and R(tau)
+    points: "protects 25 - Tool Implementation: fewer, fully checked analyses"
+    status: done
+    owner: "YuCiciFu + Claude"
+    started_at: "2026-10-17 11:29"
+    owns: ["app/", "tests/", "demo/", "SPEC.md", "docs/methods.md", "docs/plan.md", "README.md", "CONTRACT.yaml"]
+    notes: >
+      Remove (code, page, tests, docs): the I-MR chart; the p chart's Pearson chi-square,
+      phi, dispersion p-value and its warning (the plain p chart and its binomial assumption
+      stay); Kaplan-Meier, Greenwood bands, RMST and MTTF (History panel); the three-policy
+      paired comparison, its CIs and Bonferroni (Improvement tab and the policy simulation);
+      R(tau) with series, parallel and k-out-of-n (Reliability panel). Keep Overview,
+      Stations, the plain p chart, c chart (with its dispersion check), X-bar/R, Cpu/Cp/Cpk,
+      Diagnosis, greedy rebalancing, task status, and the Now forecast with its bootstrap
+      (it keeps the shared demand functions in app/sim.R). Rename "Forecast & Reliability" to
+      "Forecast". Formal data/*.csv, demos/ and rule files stay unchanged. No merge, no deploy.
+    definition_of_done: >
+      Rscript -e "testthat::test_dir('tests')" passes; git grep finds no live code for
+      imr_chart, p_dispersion, km_, paired_diff_ci, compare_policies or reliability_ in app/
+      and tests/; a Playwright pass over every tab, an upload, a forecast run and a task move
+      shows no error; the manifest is regenerated and the app starts from its files alone.
+    result: "done: test_dir 743 pass, 0 fail (removed suites: test-survival, test-reliability, test-paired, and the I-MR, p-dispersion and policy tests); git grep finds no imr_chart, p_dispersion, paired_diff_ci, compare_policies, reliability_ or Kaplan-Meier code in app/ or tests/ (km_flat in forecast.R is known minutes); Playwright on the manifest-only bundle (ports 5774, 5775): 6 tabs, no output errors, edge_case.csv upload, forecast 25/25 at 2026-10-05 07:30 with bootstrap, 8 moves and task assign accepted / skip rejected; manifest 11 files, 68 packages, MD5s match; also: on a one-weekday file the forecast hint now says so instead of offering a useless date button; side effect stated in the docs: without the dispersion check the baseline p charts mark 7 of 20 days OUT OF CONTROL; no teammate review of the diff recorded; not merged or deployed"
