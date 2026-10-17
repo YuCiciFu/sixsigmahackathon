@@ -144,7 +144,7 @@ tasks:
   - id: H-08
     title: Reproducible public repo, submitted on Devpost
     points: "5 - Tool Documentation: fully reproducible code, posted publicly to GitHub"
-    status: blocked
+    status: done
     owner: "YuCiciFu + Claude"
     started_at: "2026-10-17 10:30"
     owns: [".gitignore"]
@@ -156,7 +156,7 @@ tasks:
       git clone of the public repo into an empty folder, then the app/
       testme script and the H-03 tests both pass with no extra steps; git
       grep -i "api_key" finds no real key; the Devpost entry links the repo.
-    result: "blocked: fresh git clone of feat/h06-deploy (10e6b51) passes testthat::test_dir(tests) 1236/0 and the app starts (testme command on port 5771 because 5763 was busy) with HTTP 200; git grep -i api_key finds only variable names and placeholders, no key-like value, no .env; .gitignore covers local test artefacts; waiting for the Devpost entry linking the repo (YuCiciFu); 2026-10-17 re-check on a fresh clone of main 1231c63: test_dir 458 pass 0 fail, the app starts (port 5777, 5763 busy locally), git grep -i api_key finds only variable names, secrets references and placeholders, no key-like value, no .env; live URL HTTP 200 with the 4 final tabs; waiting only for the Devpost entry that links the repo"
+    result: "done: the Devpost entry https://devpost.com/software/win2027 (fetched 2026-10-17, HTTP 200) links https://github.com/YuCiciFu/sixsigmahackathon and shows the six-sigma-hackathon event; the live app URL is not linked on that page; earlier record: blocked: fresh git clone of feat/h06-deploy (10e6b51) passes testthat::test_dir(tests) 1236/0 and the app starts (testme command on port 5771 because 5763 was busy) with HTTP 200; git grep -i api_key finds only variable names and placeholders, no key-like value, no .env; .gitignore covers local test artefacts; waiting for the Devpost entry linking the repo (YuCiciFu); 2026-10-17 re-check on a fresh clone of main 1231c63: test_dir 458 pass 0 fail, the app starts (port 5777, 5763 busy locally), git grep -i api_key finds only variable names, secrets references and placeholders, no key-like value, no .env; live URL HTTP 200 with the 4 final tabs; waiting only for the Devpost entry that links the repo"
 
   - id: H-09
     title: Split SPEC.md into template answers plus docs/methods.md
