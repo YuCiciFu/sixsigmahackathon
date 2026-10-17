@@ -105,7 +105,7 @@ tasks:
   - id: H-06
     title: Deploy to the course Posit Connect server
     points: "protects the 25 working-tool points - judges must be able to open it"
-    status: blocked
+    status: done
     owner: "YuCiciFu + Claude"
     started_at: "2026-10-16 23:29"
     owns: [".github/workflows/", ".github/scripts/", "app/manifest.json", "app/.python-version", "app/manifestme.R"]
@@ -120,7 +120,7 @@ tasks:
     definition_of_done: >
       The workflow run is green, and the public URL answers HTTP 200 from a
       logged-out browser and returns the H-03 numbers for one test dataset.
-    result: "blocked: final manifest.json (13 files: app.R, 9 sourced R files, 3 scenario .csv.gz; 68 CRAN packages; R 4.5.2) with every MD5 matching the commit; a copy holding only the bundle files starts and all 7 tabs render without errors; repo secrets set by YuCiciFu; waiting for YuCiciFu to approve publishing (merge to main); not deployed, DoD not run"
+    result: "done: workflow run 39038054335 green on main daeb78c; https://connect.systems-apps.com/content/d242b1d3-484c-484f-a581-8e4a67845434/ answers HTTP 200 logged out (access set by YuCiciFu); live page shows baseline 29.9% / 820/3025 / 25/1484 and, on edge_case, the hand-worked KA-1b outcomes (3 rejected rows, 358 known, S002 stale 3 and 4 min) accepted as the H-03 evidence under the H-04 decision; checked 2026-10-17"
 
   - id: H-07
     title: README and function documentation
