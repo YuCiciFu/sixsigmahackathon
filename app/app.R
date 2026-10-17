@@ -249,6 +249,7 @@ ui <- page_navbar(
                 " rent-unusable now or at least once within the next 10, 20 and 30 minutes (and separately",
                 " return-unusable)? A station already unusable at t0 is 1. It is simulated forward R times with the",
                 " demand rates of the earlier weekdays."),
+      uiOutput("fc_date_hint"),
       layout_columns(
         fill = FALSE, col_widths = c(3, 3, 6),
         numericInput("fc_R", "Simulated paths R", 2000, min = 100, max = 20000, step = 100),
@@ -497,6 +498,7 @@ ui <- page_navbar(
                 " least one are counted; the table shows how many.")
       )),
     panel_card(card_header("Run"),
+      uiOutput("sim_date_hint"),
       layout_columns(
         fill = FALSE, col_widths = c(3, 3, 3, 3),
         numericInput("sim_seeds", "Seeds R (paired)", 30, min = 1, max = 200, step = 1),
@@ -512,7 +514,7 @@ ui <- page_navbar(
         tags$div(
           help_text("Also used from the sidebar: date, stale_limit, target fill, van capacity, detour factor."),
           actionButton("run_sim", "Run comparison", class = "btn-primary"))),
-      help_text("The simulation runs only when you click. 30 seeds x 3 policies take about half a minute.")),
+      help_text("The simulation runs only when you click. 30 seeds x 3 policies take about 30-60 seconds.")),
     uiOutput("sim_head"),
     panel_card(card_header("Per-policy means over the seeds"), tableOutput("sim_summary_tbl")),
     panel_card(card_header("Paired differences (first policy minus second policy, 3 pairs x 4 metrics)"),
@@ -593,6 +595,41 @@ server <- function(input, output, session) {
   observeEvent(dates(), {
     updateSelectInput(session, "date", choices = dates(), selected = dates()[1])
   })
+
+  # The forecast (Now) and the policy comparison use only weekdays BEFORE the sidebar date (no
+  # look-ahead), so the first weekday has no history. Say so before the user clicks Run, and offer
+  # one-click dates that do have history. Nothing here reads data after the chosen date.
+  date_hint <- function(prefix, needs) {
+    renderUI({
+      req(input$date)
+      h <- history_info(dates(), input$date)
+      buttons <- tags$div(class = "mb-2",
+        if (!is.na(h$first_with_history)) actionButton(paste0(prefix, "_first"),
+          paste("Use the first date with history (", h$first_with_history, ")"), class = "btn-sm btn-outline-primary"),
+        if (!is.na(h$latest)) actionButton(paste0(prefix, "_latest"),
+          paste("Use the latest date (", h$latest, ")"), class = "btn-sm btn-outline-primary"))
+      if (h$n_before == 0) {
+        tagList(alert_box(paste0(input$date, " is the first weekday in the file: there are no earlier weekdays to",
+                                 " estimate demand from, so ", needs, " cannot run for this date. Pick a later date in the",
+                                 " sidebar or click a button below. The tool never uses the chosen day or later days for",
+                                 " this (no look-ahead)."), "warning"), buttons)
+      } else {
+        tagList(help_text(paste0("History for ", input$date, ": ", h$n_before, " earlier weekday(s).",
+                                 if (h$n_before < 2) " The day bootstrap needs at least 2." else "")), buttons)
+      }
+    })
+  }
+  output$fc_date_hint <- date_hint("fc", "the forecast")
+  output$sim_date_hint <- date_hint("sim", "the policy comparison")
+  pick_date <- function(which) {
+    h <- history_info(dates(), input$date)
+    d <- if (which == "first") h$first_with_history else h$latest
+    if (!is.na(d)) updateSelectInput(session, "date", selected = d)
+  }
+  observeEvent(input$fc_first, pick_date("first"))
+  observeEvent(input$fc_latest, pick_date("latest"))
+  observeEvent(input$sim_first, pick_date("first"))
+  observeEvent(input$sim_latest, pick_date("latest"))
   observeEvent(sc(), {
     ids <- sc()$stations$station_id
     names(ids) <- paste(ids, "-", sc()$stations$station_name)
