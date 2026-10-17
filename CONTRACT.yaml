@@ -86,7 +86,7 @@ tasks:
       The testme script in app/ starts the tool with one command, and a call
       on one data/ file (endpoint, function call or app upload) returns the
       same numbers as the H-03 known-answer test.
-    result: "done by team decision (YuCiciFu, 2026-10-17): testme starts the app; accepted evidence = the hand-worked KA-1b rule outcomes on the formal data/edge_case.csv (integration test in tests/test-prep.R and the page) plus the H-03 rule tests; the H-03 known-answer numbers themselves are NOT reproduced on a data/ file"
+    result: "done by team decision (YuCiciFu, 2026-10-17): testme starts the app; accepted evidence = the hand-worked KA-1b rule outcomes on the formal data/edge_case.csv (integration test in tests/test-prep.R and the page) plus the H-03 rule tests; the H-03 known-answer numbers themselves are NOT reproduced on a data/ file; 2026-10-17 usability fix: Now and Improvement warn before Run when the sidebar date has no earlier weekday and offer first-with-history / latest date buttons (no look-ahead); test_dir 1244 pass"
 
   - id: H-05
     title: Demonstration of the tool on every test dataset

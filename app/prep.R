@@ -261,6 +261,19 @@ baseline_flags <- function(eligible, share = 0.5) {
   flags
 }
 
+# How much history the forecast and the policy comparison have for `date`: they only use weekdays
+# STRICTLY BEFORE the chosen date (no look-ahead), so the first weekday of a file has none.
+# Output: list(n_before, first_with_history (2nd weekday or NA), first_for_bootstrap (3rd or NA),
+#              latest (last weekday or NA)).
+history_info <- function(dates, date) {
+  dates <- sort(unique(dates))
+  n <- length(dates)
+  list(n_before = sum(dates < date),
+       first_with_history = if (n >= 2) dates[2] else NA_character_,
+       first_for_bootstrap = if (n >= 3) dates[3] else NA_character_,
+       latest = if (n >= 1) dates[n] else NA_character_)
+}
+
 # ---------------------------------------------------------------- 7. data source
 
 # The formal scenario files the app can offer without an upload (task H-02's data/).

@@ -423,3 +423,16 @@ test_that("format_p and as_whole_numbers", {
   d <- as_whole_numbers(data.frame(station_id = "S1", remaining_deficit = 7), "remaining_deficit")
   expect_identical(d$remaining_deficit, 7L)
 })
+
+test_that("history_info: the first weekday has no history; buttons point at real later dates", {
+  d <- c("2026-09-21", "2026-09-22", "2026-09-23", "2026-10-16")
+  h1 <- history_info(d, "2026-09-21")
+  expect_equal(h1$n_before, 0L)
+  expect_equal(h1$first_with_history, "2026-09-22")
+  expect_equal(h1$first_for_bootstrap, "2026-09-23")
+  expect_equal(h1$latest, "2026-10-16")
+  expect_equal(history_info(d, "2026-09-22")$n_before, 1L)
+  expect_equal(history_info(d, "2026-10-16")$n_before, 3L)
+  expect_true(is.na(history_info("2026-09-21", "2026-09-21")$first_with_history))   # one-day file (edge_case)
+  expect_equal(history_info(character(0), "2026-09-21")$n_before, 0L)
+})
