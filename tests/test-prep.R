@@ -323,7 +323,7 @@ test_that("issue_summary counts by table, rule and action; issue_detail caps the
   expect_equal(nrow(issue_summary(sc$issues[0, ])), 0)
 })
 
-test_that("signal_label does not call a beyond-limit point a confirmed special cause when overdispersed", {
+test_that("signal_label (c chart) does not call a beyond-limit point a confirmed special cause when overdispersed", {
   expect_equal(signal_label(c(TRUE, FALSE, NA), FALSE), c("OUT OF CONTROL", "in control", "not assessed"))
   w <- signal_label(c(TRUE, FALSE, NA), TRUE)
   expect_match(w[1], "not a confirmed special cause", fixed = TRUE)
@@ -346,7 +346,7 @@ test_that("signal_label does not call a beyond-limit point a confirmed special c
 #   07:02-07:15: 12 known, 2 unknown, 0 unusable, 0 early-warning minutes.
 #   S001: 10 bikes and 10 docks in every snapshot -> 180 known, 0 unknown, 0 unusable,
 #   0 warning (degenerate case).
-#   One weekday only -> p and I-MR limits are NA with "fewer than 2 baseline ..." notes.
+#   One weekday only -> p and c chart limits are NA with "fewer than 2 baseline ..." notes.
 edge_path <- testthat::test_path("..", "data", "edge_case.csv")
 
 test_that("Scenario integration (data/edge_case.csv): KA-1b rules on S002 07:02-07:15, S001 degenerate, one-day SPC", {
@@ -401,10 +401,9 @@ test_that("Scenario integration (data/edge_case.csv): KA-1b rules on S002 07:02-
   p <- p_chart(a$rent_fail, a$rent_n)
   expect_true(is.na(p$data$ucl))
   expect_match(p$note, "fewer than 2 baseline subgroups", fixed = TRUE)
-  expect_match(p$dispersion$note, "fewer than 2 baseline subgroups", fixed = TRUE)
   expect_equal(a$return_n, 0)                     # edge_case has no return attempts
-  i <- imr_chart(grid_window_counts(g, NULL, "2026-09-21")$either_min)
-  expect_match(i$note, "fewer than 2 baseline points", fixed = TRUE)
+  cc <- c_chart(count_onsets(g))
+  expect_match(cc$note, "fewer than 2 baseline windows", fixed = TRUE)
 })
 
 test_that("station_popup shows unknown counts as 'unknown' and escapes names", {
@@ -416,10 +415,7 @@ test_that("station_popup shows unknown counts as 'unknown' and escapes names", {
   expect_match(p[2], "A &lt;b&gt;&amp;&lt;/b&gt; B", fixed = TRUE)
 })
 
-test_that("format_p and as_whole_numbers", {
-  expect_equal(format_p(0.716406), "0.716")
-  expect_equal(format_p(6.2e-23), "< 0.0001")
-  expect_equal(format_p(NA), "n/a")
+test_that("as_whole_numbers", {
   d <- as_whole_numbers(data.frame(station_id = "S1", remaining_deficit = 7), "remaining_deficit")
   expect_identical(d$remaining_deficit, 7L)
 })

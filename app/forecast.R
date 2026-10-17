@@ -6,14 +6,13 @@
 # Question: starting from the inventory a station has at the forecast origin t0, what is the
 # probability that the station is rent-unusable (or return-unusable) at t0 OR at least once within
 # the next 10, 20 and 30 minutes (already unusable at t0 -> 1)? It is simulated forward (Monte Carlo) with Poisson rider arrivals. It is a model with
-# demo assumptions, not a measurement, and it is a different question from the historical
-# Kaplan-Meier (that one describes past days).
+# demo assumptions, not a measurement.
 #
 # Assumptions (all shown on the page too)
 #   * Rents and returns arrive as independent Poisson processes per station; the rate is constant
 #     inside each 15-minute bin; stations are independent (no interactions between stations).
 #   * Rate = attempts (successful + failed) / known station-minutes in that bin, over the weekdays
-#     STRICTLY BEFORE t0's date (sim.R estimate_demand, the same definition as the simulation).
+#     STRICTLY BEFORE t0's date (sim.R estimate_demand).
 #     No data after t0 is used anywhere (D-2). A rate of 0 is valid.
 #   * Riders who gave up without trying are not in the log, so demand may be understated.
 #   * The renting / returning flags stay at their t0 values.
@@ -22,12 +21,12 @@
 #   * Fixed rates (step 5a): the rates are taken as known. Parameter-estimation uncertainty is
 #     added in step 5b (H-14, forecast_bootstrap below), only when asked (bootstrap = TRUE).
 #
-# Time convention (same as sim.R / methods 4.1)
+# Time convention (methods 4.1)
 #   Minute k (k = 0, 1, ...) after t0 holds the events of [t0+k, t0+k+1). The state of the interval
 #   starting at t0+k is read after every event before it. The EVENT forecast is: the station is
 #   unusable at t0 itself (the grid state at t0) OR in any interval starting at t0+1, ..., t0+h
 #   (events of all h minutes count). So a station already unusable at t0 has probability exactly 1
-#   (the same convention as sim.R's predictive risk table, which counts the current minute).
+#   (the current minute counts).
 #   KA-8b is unchanged: a station with 2 bikes (usable at t0), rent rate 0.1/min and no returns is
 #   rent-unusable within h minutes if and only if N >= 2 rents arrived, N ~ Poisson(0.1 h).
 #   Past 10:00: the grid ends at 10:00, so when t0 + h goes past it the rates of the last 15-min bin

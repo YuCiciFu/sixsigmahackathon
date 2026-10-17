@@ -1,12 +1,11 @@
 # Rush Hour Autopilot - Shiny dashboard (team 2027win)
 #
 # app.R does the screen and the wiring ONLY:
-#   app/qc.R    every statistic (loader, grid, p and I-MR charts, rebalancing plan)
+#   app/qc.R    every statistic (loader, grid, p, c and X-bar/R charts, capability, rebalancing plan)
 #   app/prep.R  data shaping (dates, counts of attempts, ranking, baseline choice)
 #   app/plots.R ggplot drawing
-#   app/sim.R   the seeded policy simulation (Improvement tab)
-#   app/survival.R  the historical Kaplan-Meier statistics (Forecast & Reliability tab, History)
-#   app/forecast.R  the current-state risk forecast, step 5a (Forecast & Reliability tab, Now)
+#   app/sim.R   the demand model shared by the forecast (rates from earlier weekdays)
+#   app/forecast.R  the current-state risk forecast, step 5a and the day bootstrap 5b (Forecast tab)
 # Started from the demo in demos/shinyapp (one app.R with ui + server + shinyApp()).
 #
 # Run from the repo root:  Rscript app/testme.R
@@ -17,12 +16,10 @@ library(ggplot2)
 library(leaflet)
 
 source("qc.R", local = TRUE)      # the working directory is the app folder when the app runs
-source("survival.R", local = TRUE)   # Kaplan-Meier (H-12); prep.R only formats its results
 source("prep.R", local = TRUE)
 source("plots.R", local = TRUE)
-source("sim.R", local = TRUE)     # the policy simulation (H-10); the page only shows its results
+source("sim.R", local = TRUE)     # demand rates from earlier weekdays, used by the forecast
 source("forecast.R", local = TRUE)   # the Now risk forecast, step 5a (H-13) and the day bootstrap 5b (H-14)
-source("reliability.R", local = TRUE)   # empirical availability and reliability (H-16)
 source("faulttree.R", local = TRUE)     # qualitative fault trees and cause shares (H-17, Diagnosis tab)
 source("tasks.R", local = TRUE)         # simulated task status moves and their rules (H-18, Rebalancing tab)
 
@@ -41,7 +38,7 @@ cached <- function(key, value) {
 }
 
 # What pauses when a record type cannot be used (see table_block_message in prep.R).
-NEEDS_STATUS <- "the map, the minute grid, the station views, the I-MR chart and rebalancing"
+NEEDS_STATUS <- "the map, the minute grid, the station views, the c chart, the forecast and rebalancing"
 NEEDS_ATTEMPTS <- "the failure rates and the p charts"
 NEEDS_TASKS <- "the X-bar/R chart of response time and the capability indices"
 
@@ -54,17 +51,6 @@ alert_box <- function(text, type = "warning") tags$div(class = paste0("alert ale
 blank_numeric_input <- function(...) {
   htmltools::tagQuery(numericInput(..., value = NA))$find("input")$removeAttrs("value")$allTags()
 }
-# The p chart's overdispersion check (computed in qc.R p_dispersion; shown here only).
-dispersion_box <- function(d) {
-  if (is.na(d$ratio)) return(alert_box(paste("Dispersion check:", d$note), "secondary"))
-  p_text <- format_p(d$p_value)
-  note <- paste0(toupper(substr(d$note, 1, 1)), substring(d$note, 2))
-  alert_box(paste0("Dispersion check on the baseline: X2 = ", sprintf("%.1f", d$chi_sq), " on ", d$df,
-                   " df, ratio X2/df = ", sprintf("%.2f", d$ratio), ", chi-square p ",
-                   if (startsWith(p_text, "<")) p_text else paste("=", p_text), ". ", note, "."),
-            if (isTRUE(d$warning)) "warning" else "info")
-}
-
 # The c chart's Poisson check (computed in qc.R c_dispersion; shown here only).
 c_dispersion_box <- function(d) {
   if (is.na(d$ratio)) return(alert_box(paste("Dispersion check:", d$note), "secondary"))
@@ -156,26 +142,24 @@ ui <- page_navbar(
     panel_card(card_header("p chart: rent failure proportion"),
          help_text("How to read this: each point is one weekday rush window (% of rent attempts that failed);",
                    " red points are beyond the 3-sigma limits from the baseline (dashed) or in a run of 8.",
-                   " The box below checks whether the binomial model behind the limits fits the baseline."),
+                   " Assumes a binomial model: within a window every attempt fails independently with the same",
+                   " probability. Attempts at the same station and time may not be independent; then the",
+                   " limits are too narrow and a point beyond them is a prompt to investigate."),
          uiOutput("p_rent_note"), plotOutput("p_rent_plot", height = 350), tableOutput("p_rent_tbl")),
     panel_card(card_header("p chart: return failure proportion"),
          help_text("How to read this: same as above for return attempts."),
          uiOutput("p_return_note"), plotOutput("p_return_plot", height = 350), tableOutput("p_return_tbl")),
-    panel_card(card_header("I-MR chart: either-unusable share of known station-minutes (fixed station set)"),
-         help_text("How to read this: one point per included weekday window; top = the share, bottom = the",
-                   " change from the previous window. Windows below the minimum coverage are left out."),
-         uiOutput("imr_note"), plotOutput("imr_i_plot", height = 350), plotOutput("imr_mr_plot", height = 300),
-         tableOutput("imr_tbl")),
-    panel_card(card_header("Windows excluded from the I-MR and c charts"), tableOutput("excluded_tbl")),
+    panel_card(card_header("Windows excluded from the c chart (coverage below the minimum)"), tableOutput("excluded_tbl")),
     panel_card(card_header("c chart: anomaly onsets per rush window (fixed station set)"),
          help_text("An anomaly onset is a station-minute that is unusable (empty, full or switched off) right",
                    " after a minute that was known and usable at the same station. A switch across a gap of",
-                   " unknown data is not counted. One point per included weekday window (same inclusion and",
-                   " baseline as the I-MR chart); red points are beyond the 3-sigma limits or in a run of 8.",
+                   " unknown data is not counted. One point per included weekday window (windows below the",
+                   " minimum coverage are left out and listed above); red points are beyond the 3-sigma limits",
+                   " or in a run of 8.",
                    " The box below checks the Poisson assumption behind the limits.",
                    " In control here does NOT mean the stations are healthy: a long outage adds only one onset",
                    " and then none, so this chart counts how often stations break, not how long they stay",
-                   " broken. See the I-MR chart for the level of unusable time."),
+                   " broken. The Overview and Stations tabs show the level of unusable time."),
          uiOutput("c_note"), plotOutput("c_plot", height = 350), tableOutput("c_tbl")),
     panel_card(card_header("X-bar and R chart: van response time (minutes from assigned to arrived)"),
          help_text("Each point is one weekday rush window (07:00-10:00 New York). A subgroup is the first 3",
@@ -204,58 +188,21 @@ ui <- page_navbar(
          plotOutput("cap_hist", height = 300))
   ),
 
-  nav_panel("Forecast & Reliability",
-    panel_card(card_header("History: time to first service failure after a usable 07:00 (Kaplan-Meier)"),
-      help_text("Descriptive about PAST days; this is not a forecast. Question: starting from a station that",
-                " is known and usable at 07:00, how many minutes pass until its first unusable minute? A station-day",
-                " is one station on one weekday. The failure time is measured to the START of the first unusable",
-                " minute (a failure in 07:05-07:06 is 5 minutes). A station-day with no failure is censored at 180",
-                " (10:00); one whose data go unknown before any failure is censored at the START of the unknown gap",
-                " (we do not guess what happened in it). Stations unknown or already unusable at 07:00 give no",
-                " observation and are counted below."),
-      layout_columns(
-        fill = FALSE, col_widths = c(4, 4, 4),
-        selectInput("km_failure", "Failure type (the event)",
-                    choices = c("Either unusable (rent or return)" = "either", "Rent unusable" = "rent",
-                                "Return unusable" = "return")),
-        radioButtons("km_scope", "Days used",
-                     choices = c("All weekdays in the file" = "all",
-                                 "Weekdays up to and including the sidebar date" = "upto")),
-        uiOutput("km_head")),
-      plotOutput("km_plot", height = 380),
-      help_text("How to read this: the line is the share of station-days still without a failure after t minutes;",
-                " the shaded band is the 95% Greenwood (log-log) interval; + marks censoring (stations whose",
-                " follow-up ended without a failure). A fast fall means failures come soon after 07:00."),
-      uiOutput("km_notes"),
-      layout_columns(
-        fill = FALSE, col_widths = c(5, 7),
-        tags$div(tags$b("What went into the estimate"), tableOutput("km_counts_tbl")),
-        tags$div(tags$b("Share failed within 10, 20 and 30 minutes (F = 1 - S)"), tableOutput("km_horizon_tbl"),
-                 tags$b("Mean time to first failure"), tableOutput("km_mean_tbl"))),
-      help_text("RMST (restricted mean survival time) is the area under the curve up to 180 minutes: the average",
-                " number of minutes, out of 180, a usable station lasts before its first failure. The MTTF (mean",
-                " time to first failure) is reported only when the curve reaches 0; otherwise it is not estimable",
-                " and the RMST is the honest summary."),
-      help_text("Assumptions: censoring is non-informative (a station whose data go unknown is no more or less",
-                " likely to fail than the others). The intervals treat station-days as independent (Greenwood);",
-                " nearby stations, and one station on different days, may be correlated, so the intervals may be",
-                " too narrow. F(t) is read as: of the station-days usable at 07:00, the share that failed by t.",
-                " The rent and return curves use the same starting group (stations fully usable, for both rent",
-                " and return, at 07:00), so they are conditional on that group, not fleet-wide rates."),
-      tags$b("Stations left out at 07:00"), tableOutput("km_excluded_tbl")),
+  nav_panel("Forecast",
     panel_card(card_header("Now: risk forecast from the current state (a model, step 5a fixed rates; step 5b day bootstrap on request)"),
-      help_text("A model, unlike the History panel above. Question: starting from each station's inventory at the",
+      help_text("A model, not a measurement. Question: starting from each station's inventory at the",
                 " origin t0 (sidebar date + observation minute), what is the probability that the station is",
                 " rent-unusable now or at least once within the next 10, 20 and 30 minutes (and separately",
                 " return-unusable)? A station already unusable at t0 is 1. It is simulated forward R times with the",
                 " demand rates of the earlier weekdays."),
       uiOutput("fc_date_hint"),
       layout_columns(
-        fill = FALSE, col_widths = c(3, 3, 6),
+        fill = FALSE, col_widths = c(3, 3, 3, 3),
         numericInput("fc_R", "Simulated paths R", 2000, min = 100, max = 20000, step = 100),
         numericInput("fc_seed", "Seed", 1, step = 1),
-        tags$div(help_text("Uses the sidebar date, observation minute, stale_limit, detour factor and the van speed",
-                           " of the Improvement tab. Runs only when you click."),
+        numericInput("fc_speed", "Van speed, km/h (demo assumption, vans on the way)", 20, min = 1, step = 1),
+        tags$div(help_text("Also uses the sidebar date, observation minute, stale_limit and detour factor.",
+                           " Runs only when you click."),
                  actionButton("run_fc", "Run forecast", class = "btn-primary"))),
       layout_columns(
         fill = FALSE, col_widths = c(6, 3, 3),
@@ -308,57 +255,7 @@ ui <- page_navbar(
         tags$li("A van's estimated arrival is rounded down to the start of its minute (up to 1 minute early);",
                 " demo assumption.")),
       tags$b("Source days (weekdays before t0's date)"), textOutput("fc_days"),
-      tags$b("Bin rates used (network mean over the stations forecast)"), tableOutput("fc_rates_tbl")),
-    panel_card(card_header("Empirical availability and reliability R(tau): series, parallel and k-out-of-n"),
-      help_text("Descriptive about the chosen day(s), computed from the minute grid. A minute counts only when EVERY",
-                " station involved is known at the minutes involved; an unknown minute is never counted as usable and",
-                " is left out of numerator and denominator. Stations are not assumed independent: the share is counted",
-                " from the minutes in which they were observed together. The independence formula is shown only as a",
-                " contrast."),
-      layout_columns(
-        fill = FALSE, col_widths = c(3, 3, 3, 3),
-        selectInput("rel_tau", "Horizon tau, minutes (reliability)", choices = c(10, 20, 30), selected = 30),
-        radioButtons("rel_days", "Days used",
-                     choices = c("Sidebar date only" = "one", "All weekdays pooled" = "all")),
-        selectInput("rel_usable", "Parallel and k-out-of-n: a station is usable when",
-                    choices = c("neither rent nor return is unusable (fully usable)" = "either",
-                                "rent is usable" = "rent", "return is usable" = "return")),
-        help_text("Series: origin must be rent-usable, destination return-usable (fixed).")),
-      layout_columns(
-        fill = FALSE, col_widths = c(3, 3, 2, 4),
-        selectInput("rel_origin", "Series: origin station", choices = character(0)),
-        selectInput("rel_dest", "Series: destination station", choices = character(0)),
-        numericInput("rel_d", "Trip time d, minutes", 15, min = 0, step = 1),
-        selectizeInput("rel_par", "Parallel: at least one of these stations (pick 1 or more)",
-                       choices = character(0), multiple = TRUE)),
-      layout_columns(
-        fill = FALSE, col_widths = c(3, 2, 7),
-        selectInput("rel_region", "k-out-of-n: region (the n stations are all stations of the region)", choices = character(0)),
-        numericInput("rel_k", "k (at least k usable)", 1, min = 1, step = 1),
-        uiOutput("rel_head")),
-      tableOutput("rel_tbl"),
-      help_text("How to read this: availability = the share of eligible minutes in which the condition holds (the",
-                " counts are in brackets). R(tau) = the share of eligible start minutes m for which the condition holds",
-                " in EVERY minute from m to m + tau - 1; a start minute is eligible only when all those minutes can be",
-                " judged and the window ends by 10:00. Always read R together with its tau. A window that contains",
-                " an unknown minute is left out, even if it also contains a known failure, so with patchy data R can",
-                " be somewhat optimistic; the eligible start minutes are always shown."),
-      tags$b("Assumptions and definitions"),
-      tags$ul(
-        tags$li("Series (a trip): at start minute m the origin is rent-usable at m AND the destination is return-usable at",
-                " m + d. A start minute needs m + d before 10:00; R(tau) also needs m + tau - 1 + d before 10:00."),
-        tags$li("Parallel: at least one chosen station is usable. k-out-of-n: at least k of the region's n stations are",
-                " usable. With all stations known at the same minutes the count is exact; one unknown station removes the",
-                " minute for the whole structure (conservative)."),
-        tags$li("Independence formula (contrast): series = A(origin) x A(destination); parallel = 1 - product of (1 - A_i);",
-                " k-out-of-n = the chance that at least k of n independent stations are usable, each with its own",
-                " availability over the same eligible minutes. Stations are not assumed independent; a gap between this",
-                " value and the empirical one shows how far the stations move together."),
-        tags$li("Pooled weekdays count every eligible minute and start minute of all days; a window never spans two days.",
-                " Minutes within a day are strongly dependent, so the shares have no confidence interval here."),
-        tags$li("Defaults: origin and destination = the first two stations, d = 15 minutes; parallel = the first two",
-                " stations; k-out-of-n region = the first region, k = half of its stations rounded up (all demo choices)."))
-    )
+      tags$b("Bin rates used (network mean over the stations forecast)"), tableOutput("fc_rates_tbl"))
   ),
 
   nav_panel("Diagnosis",
@@ -444,96 +341,6 @@ ui <- page_navbar(
         blank_numeric_input("tk_qty", "Bikes actually moved (for completed)", min = 0, step = 1)),
       actionButton("tk_apply", "Apply", class = "btn-primary"),
       uiOutput("tk_msg"))
-  ),
-
-  nav_panel("Improvement",
-    panel_card(card_header("What this tab does, and what it assumes"),
-      help_text("Question: with the SAME simulated riders, are fewer station-minutes unusable when vans",
-                " rebalance (reactive or predictive policy) than when they do not (no rebalancing), and does",
-                " one rebalancing policy beat the other? The tool does not assume any policy wins. Everything",
-                " below is simulated, not a forecast of a real day."),
-      tags$ul(class = "text-muted small",
-        tags$li("True demand (from the data): Poisson arrivals per station and 15-minute bin, rate = attempts",
-                " (successful + failed) / known station-minutes of the CHOSEN morning itself. This replays the",
-                " demand intensity of that morning; it makes the simulated riders. A rate of 0 is valid. A bin with",
-                " no known minute uses the station's pooled rate over that day (demo assumption); riders who gave",
-                " up without trying are not observed. One morning's rates are only a noisy estimate of the true",
-                " intensity (a bin with no attempts becomes exactly 0); the intervals below cover the simulation",
-                " seeds only, not this estimation error."),
-        tags$li("What the predictive policy knows: only an estimate from the weekdays STRICTLY BEFORE the chosen",
-                " date (same formula, no look-ahead: the chosen day and later days are never used). It does not",
-                " see the true rates of the morning, so it can be wrong about it. With no earlier weekday the",
-                " comparison is not run: the predictive policy has no history to estimate from."),
-        tags$li("Paired seeds: each seed makes ONE stream of rider events, made before any policy runs; all three",
-                " policies get exactly that stream, the same start inventory and the same vans, so the policy",
-                " never changes demand, only whether a rent or return succeeds."),
-        tags$li("Start: the chosen date's 07:00 state (from the minute grid, so stale_limit applies). Stations",
-                " with an unknown 07:00 state are left out and listed below. Station open/closed flags stay as",
-                " at 07:00 (demo assumption); a closed station is maintenance, never a move."),
-        tags$li("Bikes are conserved: stations + vans + bikes on rides is the same at every event. Bikes on rides",
-                " start as the number of returns in the stream; a failed return leaves the bike on the ride."),
-        tags$li("Vans (demo assumptions): the number of distinct van_id in the file's tasks (else 2), starting at",
-                " the network centroid; travel = straight line x detour factor / speed; handling = stop time +",
-                " time per bike at each pickup and drop-off. At pickup a van takes min(planned, bikes there",
-                " then, free room); at drop-off it leaves min(load, free docks then); the rest stays on the van."),
-        tags$li("Reactive policy: at the start of each minute an idle van gets the first move of the greedy",
-                " rebalancing plan (the plan from the Rebalancing tab, on the simulated state) that touches a",
-                " rent-unusable, return-unusable or early-warning station. One task per van; stations of an",
-                " active task are reserved. Target fill, van capacity and detour come from the sidebar."),
-        tags$li("Predictive policy (tier 2, a demo heuristic): at the start of each minute an idle van gets the first",
-                " move of the same greedy plan whose destination has a rent risk, or whose source has a return",
-                " risk, at or above the threshold. Risk = probability of at least one rent-unusable (return-unusable)",
-                " minute in the next 30 minutes from the CURRENT simulated state, with the same Poisson model",
-                " as the Now forecast but with the historical rates, calculated exactly (no random numbers). The",
-                " current minute counts, so an empty station has risk 1. The threshold (default 0.5) is an",
-                " adjustable heuristic and was not tuned to make this policy look good. Summary: true demand = the",
-                " chosen morning's own observed rates; the predictive policy only knows the earlier weekdays'",
-                " estimate (no look-ahead)."),
-        tags$li("Differences d = metric(first policy) - metric(second policy), per seed, for the 3 pairs: none -",
-                " reactive, none - predictive, reactive - predictive. Primary metric: either-unusable",
-                " station-minutes in 07:00-10:00, paired t interval with a Bonferroni family of 3 (98.333%; the 3",
-                " intervals are the 3 pairwise comparisons). The other metrics are exploratory, unadjusted 95%,",
-                " not adjusted for multiple comparisons; there is no overall 95% confidence across metrics."),
-        tags$li("Recovery time: only failure onsets that recover before 10:00 are averaged, and only seeds with at",
-                " least one are counted; the table shows how many.")
-      )),
-    panel_card(card_header("Run"),
-      uiOutput("sim_date_hint"),
-      layout_columns(
-        fill = FALSE, col_widths = c(3, 3, 3, 3),
-        numericInput("sim_seeds", "Seeds R (paired)", 30, min = 1, max = 200, step = 1),
-        numericInput("sim_base_seed", "Base seed (seed s = base + s - 1)", 1, step = 1),
-        numericInput("sim_vans", "Number of vans (demo assumption)", 2, min = 1, max = 20, step = 1),
-        numericInput("sim_speed", "Van speed, km/h (demo assumption)", 20, min = 1, step = 1)),
-      layout_columns(
-        fill = FALSE, col_widths = c(3, 3, 3, 3),
-        numericInput("sim_stop", "Stop time per pickup / drop-off, min (demo assumption)", 2, min = 0, step = 0.5),
-        numericInput("sim_perbike", "Handling time per bike, min (demo assumption)", 0.1, min = 0, step = 0.05),
-        numericInput("sim_threshold", "Predictive threshold: dispatch at 30-min risk of at least (heuristic)", 0.5,
-                     min = 0, max = 1, step = 0.05),
-        tags$div(
-          help_text("Also used from the sidebar: date, stale_limit, target fill, van capacity, detour factor."),
-          actionButton("run_sim", "Run comparison", class = "btn-primary"))),
-      help_text("The simulation runs only when you click. 30 seeds x 3 policies take about 30-60 seconds.")),
-    uiOutput("sim_head"),
-    panel_card(card_header("Per-policy means over the seeds"), tableOutput("sim_summary_tbl")),
-    panel_card(card_header("Paired differences (first policy minus second policy, 3 pairs x 4 metrics)"),
-      help_text("How to read this: d = first minus second, so positive = the SECOND policy of the pair is better",
-                " (fewer minutes, fewer failures, faster recovery). The 3 primary rows come first (Bonferroni 98.333%,",
-                " the family of 3 pairs); the other rows are exploratory (95%, not adjusted). Van distance is negative",
-                " in the pairs with none because only the rebalancing policies drive. An interval that contains 0",
-                " does not show a difference (\"no difference detected\" is not evidence that the policies are",
-                " equivalent). CI_level shows the level of each row."),
-      tableOutput("sim_paired_tbl"),
-      help_text("A pair whose differences are all exactly 0 gets a zero-width interval (see its note). That only",
-                " describes this day and these assumptions; it does not show the two policies are equivalent in",
-                " general.")),
-    panel_card(card_header("Primary metric: per-seed differences, the 3 pairs"),
-      plotOutput("sim_plot", height = 350)),
-    layout_columns(
-      fill = FALSE, col_widths = c(6, 6),
-      panel_card(card_header("Stations left out of the simulation"), tableOutput("sim_excluded_tbl")),
-      panel_card(card_header("Predictive policy history: weekdays before the chosen date"), textOutput("sim_days")))
   )
 )
 
@@ -596,8 +403,8 @@ server <- function(input, output, session) {
     updateSelectInput(session, "date", choices = dates(), selected = dates()[1])
   })
 
-  # The forecast (Now) and the policy comparison use only weekdays BEFORE the sidebar date (no
-  # look-ahead), so the first weekday has no history. Say so before the user clicks Run, and offer
+  # The forecast uses only weekdays BEFORE the sidebar date (no look-ahead), so the first
+  # weekday has no history. Say so before the user clicks Run, and offer
   # one-click dates that do have history. Nothing here reads data after the chosen date.
   date_hint <- function(prefix, needs) {
     renderUI({
@@ -606,9 +413,13 @@ server <- function(input, output, session) {
       buttons <- tags$div(class = "mb-2",
         if (!is.na(h$first_with_history)) actionButton(paste0(prefix, "_first"),
           paste("Use the first date with history (", h$first_with_history, ")"), class = "btn-sm btn-outline-primary"),
-        if (!is.na(h$latest)) actionButton(paste0(prefix, "_latest"),
+        if (!is.na(h$first_with_history)) actionButton(paste0(prefix, "_latest"),
           paste("Use the latest date (", h$latest, ")"), class = "btn-sm btn-outline-primary"))
-      if (h$n_before == 0) {
+      if (is.na(h$first_with_history)) {        # one weekday only: no date in this file has history
+        alert_box(paste0("This file has only one weekday (", input$date, "), so no date has earlier weekdays to",
+                         " estimate demand from and ", needs, " cannot run. Load a file with at least two weekdays.",
+                         " The tool never uses the chosen day or later days for this (no look-ahead)."), "warning")
+      } else if (h$n_before == 0) {
         tagList(alert_box(paste0(input$date, " is the first weekday in the file: there are no earlier weekdays to",
                                  " estimate demand from, so ", needs, " cannot run for this date. Pick a later date in the",
                                  " sidebar or click a button below. The tool never uses the chosen day or later days for",
@@ -620,7 +431,6 @@ server <- function(input, output, session) {
     })
   }
   output$fc_date_hint <- date_hint("fc", "the forecast")
-  output$sim_date_hint <- date_hint("sim", "the policy comparison")
   pick_date <- function(which) {
     h <- history_info(dates(), input$date)
     d <- if (which == "first") h$first_with_history else h$latest
@@ -628,8 +438,6 @@ server <- function(input, output, session) {
   }
   observeEvent(input$fc_first, pick_date("first"))
   observeEvent(input$fc_latest, pick_date("latest"))
-  observeEvent(input$sim_first, pick_date("first"))
-  observeEvent(input$sim_latest, pick_date("latest"))
   observeEvent(sc(), {
     ids <- sc()$stations$station_id
     names(ids) <- paste(ids, "-", sc()$stations$station_name)
@@ -840,17 +648,16 @@ server <- function(input, output, session) {
       n_p <- sum(att_all()$rent_n > 0)
       paste0("p charts: first ", baseline_count(n_p, input$baseline_share), " of ", n_p, " weekdays with attempts. ")
     } else "p charts: paused (no valid attempts records). "
-    i_part <- if (is.null(status_msg())) {
+    c_part <- if (is.null(status_msg())) {
       inc <- windows()$included
-      paste0("I-MR: first ", baseline_count(sum(inc), input$baseline_share), " of ", sum(inc), " included windows. ")
-    } else "I-MR and c chart: paused (no valid status records). "
+      paste0("c chart: first ", baseline_count(sum(inc), input$baseline_share), " of ", sum(inc), " included windows. ")
+    } else "c chart: paused (no valid status records). "
     x_part <- if (is.null(tasks_msg())) {
       n_x <- nrow(response_subgroups(sc()$tasks, d)$values)
       paste0("X-bar/R: first ", baseline_count(n_x, input$baseline_share), " of ", n_x, " subgroups. ")
     } else "X-bar/R: paused (no valid tasks records). "
     alert_box(paste0("Baseline (limits are estimated from these only): the first ", input$baseline_share * 100,
-                     "% of weekdays, at least 1. ", p_part, i_part,
-                     if (is.null(status_msg())) "The c chart uses the same windows as the I-MR chart. ",
+                     "% of weekdays, at least 1. ", p_part, c_part,
                      x_part, length(d), " weekdays in the scenario."), "info")
   })
 
@@ -864,23 +671,19 @@ server <- function(input, output, session) {
     out <- list()
     out$note <- renderUI({
       r <- res()
-      tagList(
-        if (nzchar(r$note)) alert_box(paste("Control limits not drawn or limited:", r$note), "warning"),
-        dispersion_box(r$dispersion)
-      )
+      if (nzchar(r$note)) alert_box(paste("Control limits not drawn or limited:", r$note), "warning")
     })
     out$plot <- renderPlot({
       validate(need(any(!is.na(res()$data$p)), paste("No", kind, "attempts in the weekday windows: nothing to plot.")))
       plot_p(res(), att_all()$date, paste0(kind, " failure (%)"), paste("p chart:", kind, "failures"),
-             ooc_label = signal_label(TRUE, res()$dispersion$warning),
-             ok_label = signal_label(FALSE, res()$dispersion$warning))
+             ooc_label = signal_label(TRUE, FALSE), ok_label = signal_label(FALSE, FALSE))
     })
     out$tbl <- renderTable({
       d <- res()$data
       data.frame(date = att_all()$date, failures_over_n = paste0(d$failures, "/", d$n),
                  percent = round(100 * d$p, 2), center_pct = round(100 * d$center, 2),
                  UCL_pct = round(100 * d$ucl, 2), LCL_pct = round(100 * d$lcl, 2),
-                 signal = signal_label(d$out_of_control, res()$dispersion$warning))
+                 signal = signal_label(d$out_of_control, FALSE))
     }, na = "n/a")
     out
   }
@@ -889,32 +692,6 @@ server <- function(input, output, session) {
   output$p_rent_note <- rent$note;   output$p_rent_plot <- rent$plot;   output$p_rent_tbl <- rent$tbl
   output$p_return_note <- ret$note;  output$p_return_plot <- ret$plot;  output$p_return_tbl <- ret$tbl
 
-  imr <- reactive({
-    w <- windows()
-    inc <- w[w$included, ]
-    validate(need(nrow(inc) > 0, "No window has enough coverage for the I-MR chart (see the excluded list below)."))
-    list(windows = inc,
-         res = imr_chart(inc$either_share_pct, baseline = baseline_flags(rep(TRUE, nrow(inc)), input$baseline_share)))
-  })
-  output$imr_note <- renderUI({
-    if (!any(windows()$included)) return(NULL)   # the plots below say why nothing is drawn
-    r <- imr()$res
-    if (nzchar(r$note)) alert_box(paste("Control limits not drawn:", r$note), "warning")
-  })
-  output$imr_i_plot <- renderPlot({
-    plot_i(imr()$res, imr()$windows$window, "either-unusable share (% of known station-minutes)", "Individuals (I) chart")
-  })
-  output$imr_mr_plot <- renderPlot(plot_mr(imr()$res, imr()$windows$window, "Moving range (MR) chart"))
-  output$imr_tbl <- renderTable({
-    i <- imr()
-    d <- i$res$data
-    data.frame(date = i$windows$window, share_pct = round(d$x, 2), either_min = i$windows$either_min,
-               known_min = i$windows$known, coverage_pct = round(100 * i$windows$coverage, 1),
-               center = round(d$center, 2), UCL = round(d$ucl, 2), LCL = round(d$lcl, 2),
-               moving_range = round(d$mr, 2),
-               signal = ifelse(is.na(d$out_of_control), "not assessed",
-                               ifelse(d$out_of_control, "OUT OF CONTROL", "in control")))
-  }, na = "n/a")
   output$excluded_tbl <- renderTable({
     w <- windows()
     ex <- w[!w$included, ]
@@ -1002,42 +779,7 @@ server <- function(input, output, session) {
     plot_response_hist(as.vector(r$sub$values), cp$xbarbar, cp$usl, cp$lsl)
   })
 
-  # ---- Forecast & Reliability: History (statistics in survival.R, wording in prep.R, drawing in plots.R)
-  km <- reactive({
-    validate(need(is.null(status_msg()), status_msg()))   # needs the minute grid
-    d <- km_days(dates(), input$km_scope, input$date)
-    validate(need(length(d) > 0, "No weekday is selected."))
-    km_history(grids(), d, input$km_failure)
-  })
-  km_ok <- reactive({           # the history, or the reason nothing can be estimated
-    h <- km()
-    validate(need(h$summary$n > 0, KM_NO_START_REASON))
-    h
-  })
-  output$km_head <- renderUI({
-    h <- km()
-    help_text(KM_FAILURE_LABELS[[h$failure]], ", ", length(h$dates), " weekday(s) (",
-              if (length(h$dates) > 0) paste(h$dates[1], "to", h$dates[length(h$dates)]), "), n = ",
-              h$counts$n, " station-days usable at 07:00. Simulated data.")
-  })
-  output$km_plot <- renderPlot({
-    h <- km_ok()
-    plot_km(km_plot_data(h), paste0("Time to first failure (", KM_FAILURE_LABELS[[h$failure]], ")"),
-            paste0("n = ", h$summary$n, " station-days, ", h$summary$events, " failures, ",
-                   h$summary$censored, " censored; 95% Greenwood log-log band; step at whole minutes"))
-  })
-  output$km_notes <- renderUI({
-    h <- km()
-    s <- h$summary
-    if (s$n == 0) return(alert_box(paste0(s$reason, "."), "warning"))
-    if (length(s$notes) > 0) alert_box(paste0(toupper(substr(s$notes, 1, 1)), substring(s$notes, 2), "."), "info")
-  })
-  output$km_counts_tbl <- renderTable(km_counts_table(km()))
-  output$km_horizon_tbl <- renderTable(km_horizon_table(km()$summary), na = "n/a")
-  output$km_mean_tbl <- renderTable(km_mean_table(km()$summary), na = "n/a")
-  output$km_excluded_tbl <- renderTable(km_excluded_table(km()))
-
-  # ---- Forecast & Reliability: Now (statistics in forecast.R, wording in prep.R, drawing in plots.R)
+  # ---- Forecast: Now (statistics in forecast.R, wording in prep.R, drawing in plots.R)
   # Runs only on the button. A paused data type shows its message instead of running.
   fc_res <- eventReactive(input$run_fc, {
     validate(need(is.null(status_msg()), status_msg()), need(is.null(attempts_msg()), attempts_msg()))
@@ -1049,8 +791,7 @@ server <- function(input, output, session) {
       validate(need(isTRUE(input$fc_B >= 2), "Bootstrap sets B must be at least 2."),
                need(isTRUE(input$fc_Rb >= 1), "Paths per bootstrap set must be at least 1."))
     }
-    params <- tryCatch(sim_params(vans = default_van_count(sc()$tasks), detour = input$detour,
-                                  speed_kmh = input$sim_speed),
+    params <- tryCatch(sim_params(detour = input$detour, speed_kmh = input$fc_speed),
                        error = function(e) conditionMessage(e))
     validate(need(is.list(params), params))
     withProgress(message = if (boot) "Running the forecast and the day bootstrap (about 20 s)" else "Running the forecast",
@@ -1101,62 +842,6 @@ server <- function(input, output, session) {
     paste0(length(f$source_days), " weekday(s): ", paste(f$source_days, collapse = ", "))
   })
   output$fc_rates_tbl <- renderTable(forecast_rate_display(fc_res()), na = "n/a")
-
-  # ---- Forecast & Reliability: availability and R(tau) (statistics in reliability.R, wording in prep.R)
-  observeEvent(sc(), {                      # new file: reset the station choices to the defaults
-    stn <- sc()$stations
-    ids <- stn$station_id
-    names(ids) <- paste(ids, "-", stn$station_name)
-    updateSelectInput(session, "rel_origin", choices = ids, selected = ids[1])
-    updateSelectInput(session, "rel_dest", choices = ids, selected = ids[min(2, length(ids))])
-    updateSelectizeInput(session, "rel_par", choices = ids, selected = ids[seq_len(min(2, length(ids)))])
-    regions <- unique(stn$region)
-    updateSelectInput(session, "rel_region", choices = regions, selected = regions[1])
-  })
-  observeEvent(list(input$rel_region, sc()), {   # default k = half of the region's stations, rounded up
-    n <- length(region_station_ids(sc()$stations, input$rel_region))
-    if (n > 0) updateNumericInput(session, "rel_k", value = default_k(n), max = n)
-  })
-  rel_grids <- reactive({
-    validate(need(is.null(status_msg()), status_msg()))
-    req(input$date, input$date %in% names(grids()))
-    if (identical(input$rel_days, "all")) grids() else grids()[input$date]
-  })
-  rel_res <- reactive({
-    g <- rel_grids()
-    tau <- as.integer(input$rel_tau)
-    req(tau)
-    region_ids <- region_station_ids(sc()$stations, input$rel_region)
-    validate(need(!is.null(input$rel_origin) && nzchar(input$rel_origin) && nzchar(input$rel_dest %||% ""),
-                  "Choose an origin and a destination station."),
-             need(length(input$rel_par) >= 1, "Choose at least one station for the parallel structure."),
-             need(length(region_ids) >= 1, "Choose a region."),
-             need(isTRUE(input$rel_d >= 0), "Trip time d must be 0 or more."),
-             need(isTRUE(input$rel_k >= 1 && input$rel_k <= length(region_ids)),
-                  paste0("k must be a whole number from 1 to ", length(region_ids), " (the stations of this region).")))
-    usable <- input$rel_usable
-    res <- list(
-      series = reliability_from_grids(g, "series", origin = input$rel_origin, destination = input$rel_dest,
-                                      d = input$rel_d, tau = tau),
-      parallel = reliability_from_grids(g, "parallel", stations = input$rel_par, usable = usable, tau = tau),
-      kofn = reliability_from_grids(g, "kofn", stations = region_ids, k = input$rel_k, usable = usable, tau = tau))
-    use_text <- c(either = "fully usable", rent = "rent-usable", `return` = "return-usable")[[usable]]
-    names(res) <- c(paste0("Series (trip): ", input$rel_origin, " -> ", input$rel_dest, ", d = ", input$rel_d, " min"),
-                    paste0("Parallel: at least one of ", paste(input$rel_par, collapse = ", ")),
-                    paste0(input$rel_k, "-out-of-", length(region_ids), " in region ", input$rel_region))
-    rules <- list(
-      paste0(input$rel_origin, " rent-usable at m AND ", input$rel_dest, " return-usable at m + ", input$rel_d),
-      paste0("at least 1 of ", length(input$rel_par), " stations ", use_text),
-      paste0("at least ", input$rel_k, " of ", length(region_ids), " stations ", use_text))
-    names(rules) <- names(res)
-    list(res = res, rules = rules, days = names(g), tau = tau)
-  })
-  output$rel_head <- renderUI({
-    r <- rel_res()
-    help_text("Days: ", paste(r$days, collapse = ", "), ". tau = ", r$tau, " min. stale_limit = ", stale_limit(),
-              " min. Simulated data.")
-  })
-  output$rel_tbl <- renderTable(reliability_display(rel_res()$res, rel_res()$rules), na = "n/a")
 
   # ---- Diagnosis: fault trees (statistics in faulttree.R, scope and wording in prep.R)
   dx_dates <- reactive({
@@ -1264,70 +949,6 @@ server <- function(input, output, session) {
   output$tk_msg <- renderUI({
     m <- tk_message()
     if (!is.null(m)) alert_box(m$text, if (m$ok) "success" else "danger")
-  })
-
-  # ---- Improvement (the simulation is in sim.R; this only wires inputs and shows results)
-  # A new file resets the number of vans to the distinct van_id in its tasks (else 2).
-  observeEvent(sc(), updateNumericInput(session, "sim_vans", value = default_van_count(sc()$tasks)))
-
-  # Runs only on the button. A paused data type shows its message instead of running.
-  sim_res <- eventReactive(input$run_sim, {
-    validate(need(is.null(status_msg()), status_msg()), need(is.null(attempts_msg()), attempts_msg()))
-    req(input$date, input$date %in% names(grids()))
-    params <- tryCatch(
-      sim_params(vans = input$sim_vans, van_capacity = input$van_capacity, target_fill = input$target_fill,
-                 detour = input$detour, speed_kmh = input$sim_speed, stop_min = input$sim_stop,
-                 per_bike_min = input$sim_perbike, risk_threshold = input$sim_threshold),
-      error = function(e) conditionMessage(e))
-    validate(need(is.list(params), params),
-             need(isTRUE(input$sim_seeds >= 1), "Seeds R must be at least 1."),
-             need(!is.na(input$sim_base_seed), "Base seed must be a number."))
-    withProgress(message = "Running the paired simulation", value = 0, {
-      compare_policies(sc(), grids(), input$date, dates(), n_seeds = input$sim_seeds,
-                       base_seed = input$sim_base_seed, params = params,
-                       on_progress = function(i, n) incProgress(1 / n, detail = paste("seed", i, "of", n)))
-    })
-  })
-
-  output$sim_head <- renderUI({
-    r <- sim_res()
-    if (!r$ok) return(alert_box(paste0("No comparison: ", r$reason, "."), "warning"))
-    p <- r$params
-    alert_box(paste0("Result for ", r$date, ": ", length(r$seeds), " paired seeds (", min(r$seeds), " to ",
-                     max(r$seeds), "), ", length(r$stations), " stations, ", p$vans, " van(s), demand from ",
-                     "true demand = this morning's own rates (", r$true_attempts, " attempts); predictive history = ",
-                     length(r$demand_days), " earlier weekday(s) (", r$demand_attempts, " attempts). Simulated; ",
-                     "inputs changed since the click are not reflected until you run again."), "info")
-  })
-  output$sim_summary_tbl <- renderTable({
-    r <- sim_res()
-    validate(need(r$ok, r$reason))
-    policy_summary_display(r$summary)
-  }, na = "n/a")
-  output$sim_paired_tbl <- renderTable({
-    r <- sim_res()
-    paired_table_display(r$paired)
-  }, na = "n/a")
-  output$sim_plot <- renderPlot({
-    r <- sim_res()
-    validate(need(r$ok, r$reason))
-    rows <- r$paired[r$paired$metric == "either_min", ]
-    ci_text <- if (all(is.na(rows$ci_low))) paste("No interval:", rows$note[1]) else
-      sprintf("green line = mean difference; dashed = %.3f%% CI (Bonferroni family of 3 pairs); n = %d seeds. Above 0 = the second policy of the pair is better.",
-              rows$ci_level_pct[1], rows$n[1])
-    plot_paired_diffs(lapply(r$diffs, function(x) x$either_min), r$seeds, rows,
-                      "unusable station-minutes saved (first - second)",
-                      "Per-seed difference in either-unusable station-minutes", ci_text)
-  })
-  output$sim_excluded_tbl <- renderTable({
-    r <- sim_res()
-    if (is.null(r$excluded) || nrow(r$excluded) == 0) return(data.frame(note = "None."))
-    r$excluded
-  })
-  output$sim_days <- renderText({
-    r <- sim_res()
-    if (length(r$demand_days) == 0) return("none: no earlier weekday")
-    paste0(length(r$demand_days), " weekday(s): ", paste(r$demand_days, collapse = ", "))
   })
 }
 

@@ -9,15 +9,12 @@
 #   2. parse_ts          ISO 8601 text with offset -> UTC time
 #   3. read_scenario, validate_scenario, load_scenario   (loader + validator)
 #   4. build_grid, unusable_summary, grid_window_counts, window_summary (4.1)
-#   5. p_chart (+ p_dispersion, its overdispersion check), imr_chart (+ the run rule used by both)
+#   5. p_chart (+ the run rule shared by the control charts)
 #   5b. count_onsets, c_chart (+ c_dispersion), response_subgroups, xbar_r_chart,
 #       capability_indices, normality_check   (tier 2, KA-6 and KA-7)
 #   6. rebalance_plan    (4.3)
-#   7. paired_diff_ci
 
 # ---------------------------------------------------------------- constants
-IMR_D2 <- 1.128    # d2 for moving ranges of size 2: sigma-hat = MR-bar / 1.128
-IMR_D4 <- 3.267    # D4 for moving ranges of size 2: MR UCL = 3.267 * MR-bar
 SCENARIO_TABLES <- c("stations", "status", "attempts", "tasks")
 RENT_FAILURE_CODES <- c("no_bike", "bike_fault", "dock_fault", "station_closed", "app_error")
 RETURN_FAILURE_CODES <- c("no_dock", "dock_fault", "station_closed", "app_error")
@@ -439,7 +436,7 @@ grid_window_counts <- function(grid, station_ids = NULL, window = NA_character_)
 #'         optional window labels, min_coverage (default 0.95, a demo assumption).
 #' Output: window, known, unknown, coverage, either_min, either_share_pct
 #'         (100 * either / known), included (coverage >= min_coverage) and a reason
-#'         when excluded. Excluded windows must stay out of the I-MR/c baseline.
+#'         when excluded. Excluded windows must stay out of the c chart baseline.
 window_summary <- function(known, unknown, either_min, window = NULL, min_coverage = 0.95) {
   if (length(unknown) != length(known) || length(either_min) != length(known)) {
     stop("known, unknown and either_min must have the same length.", call. = FALSE)
@@ -502,8 +499,10 @@ as_baseline_flag <- function(baseline, k) {
 #'         Limits p-bar +/- 3*sqrt(p-bar*(1 - p-bar)/n_i) for each subgroup, UCL capped
 #'         at 1 and LCL floored at 0. Out of control = Western Electric rule 1 (outside
 #'         the limits) or rule 4 (8 in a row on one side of p-bar).
-#' Output: list(data, p_bar, totals, note, dispersion). data has subgroup, failures, n, p,
-#'         center, ucl, lcl, rule1, rule4, out_of_control. dispersion: see p_dispersion().
+#' Output: list(data, p_bar, totals, note). data has subgroup, failures, n, p,
+#'         center, ucl, lcl, rule1, rule4, out_of_control.
+#' Assumption (binomial): within a window every attempt fails independently with the same
+#'         probability; the limits are only as good as that assumption.
 #' NA rules: p-bar = 0 or 1, or fewer than 2 usable baseline subgroups -> limits and
 #'         signals are NA with a reason in `note`. n_i = 0 -> that p is NA. Counts,
 #'         p and totals are always kept.
@@ -550,108 +549,7 @@ p_chart <- function(failures, n, baseline = rep(TRUE, length(failures))) {
                      out_of_control = out)
   list(data = data, p_bar = p_bar,
        totals = c(failures = sum(failures[usable]), n = sum(n[usable])),
-       note = paste(notes, collapse = "; "),
-       dispersion = p_dispersion(failures[in_base], n[in_base]))
-}
-
-#' Overdispersion check for a p chart's baseline (does the baseline vary more than the
-#' binomial model behind the limits allows?). It only adds information: the limits stay.
-#' Input : failures and n of the usable baseline subgroups (n > 0).
-#' Method: p-bar = sum(failures) / sum(n). Pearson chi-square
-#'         X2 = sum((failures_i - n_i*p-bar)^2 / (n_i*p-bar*(1 - p-bar))), df = k - 1,
-#'         ratio = X2 / df (about 1 under the binomial model), p_value = P(chi2_df > X2).
-#'         warning = ratio > 1.5 (the same demo threshold as the c chart's variance/mean).
-#'         The p-value relies on the chi-square approximation (expected counts n_i*p-bar and
-#'         n_i*(1 - p-bar) of about 5 or more); the note says so when that does not hold.
-#' Output: list(chi_sq, df, ratio, p_value, warning, note).
-#' NA rules: fewer than 2 baseline subgroups, or p-bar = 0 or 1 -> all NA with a reason.
-p_dispersion <- function(failures, n) {
-  out <- list(chi_sq = NA_real_, df = NA_integer_, ratio = NA_real_, p_value = NA_real_,
-              warning = NA, note = "")
-  k <- length(failures)
-  if (k < 2) {
-    out$note <- "fewer than 2 baseline subgroups: dispersion cannot be estimated"
-    return(out)
-  }
-  p_bar <- sum(failures) / sum(n)
-  if (p_bar == 0 || p_bar == 1) {
-    out$note <- sprintf("p-bar = %g: dispersion cannot be estimated", p_bar)
-    return(out)
-  }
-  expected_fail <- n * p_bar
-  chi_sq <- sum((failures - expected_fail)^2 / (expected_fail * (1 - p_bar)))
-  df <- k - 1L
-  ratio <- chi_sq / df
-  out$chi_sq <- chi_sq
-  out$df <- df
-  out$ratio <- ratio
-  out$p_value <- stats::pchisq(chi_sq, df, lower.tail = FALSE)
-  out$warning <- ratio > 1.5
-  notes <- if (out$warning) {
-    sprintf(paste("dispersion ratio %.2f > 1.5: the baseline varies more than the binomial",
-                  "model allows (for example, attempts at the same station and time are not",
-                  "independent). The limits are likely too narrow, so a point beyond them is a",
-                  "prompt to investigate, not a confirmed special cause"), ratio)
-  } else {
-    sprintf("dispersion ratio %.2f <= 1.5: no sign of extra-binomial variation in the baseline", ratio)
-  }
-  notes <- c(notes, "the ratio and p-value rely on the chi-square approximation and do not identify a cause")
-  if (any(expected_fail < 5 | n * (1 - p_bar) < 5)) {
-    notes <- c(notes, "some expected counts are below 5, so the p-value is only rough")
-  }
-  out$note <- paste(notes, collapse = "; ")
-  out
-}
-
-#' I-MR chart for individual values (e.g. the either-unusable share per rush window).
-#' Input : x (one value per subgroup), baseline (TRUE/FALSE or indexes; default all).
-#' Method: center = mean of baseline x. MR_i = |x_i - x_(i-1)| (shown for every point).
-#'         MR-bar = mean of the moving ranges between consecutive baseline points.
-#'         sigma-hat = MR-bar / 1.128. I limits center +/- 3*sigma-hat.
-#'         MR UCL = 3.267*MR-bar, MR LCL = 0. Rules: 1 (outside limits) and 4 (8 in a row
-#'         on one side of the center); a moving range above its UCL is also flagged.
-#' Output: list(data, center, mr_bar, sigma_hat, ucl, lcl, mr_ucl, mr_lcl, note).
-#' NA rules: fewer than 2 baseline points, or MR-bar = 0 (constant data) -> limits and
-#'         signals are NA with a note; x, center and the moving ranges are still returned.
-imr_chart <- function(x, baseline = rep(TRUE, length(x))) {
-  k <- length(x)
-  base <- as_baseline_flag(baseline, k)
-  in_base <- base & !is.na(x)
-  xb <- x[in_base]
-  center <- if (length(xb) >= 1) mean(xb) else NA_real_
-  mr <- if (k >= 1) c(NA_real_, abs(diff(x))) else numeric(0)
-  mr_bar <- if (length(xb) >= 2) mean(abs(diff(xb))) else NA_real_
-
-  notes <- character(0)
-  if (anyNA(x)) notes <- c(notes, "missing values were excluded, not treated as 0")
-  limits_ok <- TRUE
-  if (length(xb) < 2) {
-    limits_ok <- FALSE
-    notes <- c(notes, "fewer than 2 baseline points: limits cannot be estimated")
-  } else if (mr_bar < 1e-12) {
-    limits_ok <- FALSE
-    notes <- c(notes, "zero variation: all baseline values are identical, so limits cannot be estimated")
-  }
-
-  if (limits_ok) {
-    sigma_hat <- mr_bar / IMR_D2
-    ucl <- center + 3 * sigma_hat
-    lcl <- center - 3 * sigma_hat
-    mr_ucl <- IMR_D4 * mr_bar
-    mr_lcl <- 0
-    rule1 <- !is.na(x) & (x > ucl | x < lcl)
-    rule4 <- run_flags(x, center)
-    mr_signal <- !is.na(mr) & mr > mr_ucl
-    out <- rule1 | rule4 | mr_signal
-  } else {
-    sigma_hat <- ucl <- lcl <- mr_ucl <- mr_lcl <- NA_real_
-    rule1 <- rule4 <- mr_signal <- out <- rep(NA, k)
-  }
-  data <- data.frame(subgroup = seq_len(k), x = x, center = center, mr = mr,
-                     ucl = ucl, lcl = lcl, mr_ucl = mr_ucl, rule1 = rule1, rule4 = rule4,
-                     mr_signal = mr_signal, out_of_control = out)
-  list(data = data, center = center, mr_bar = mr_bar, sigma_hat = sigma_hat, ucl = ucl,
-       lcl = lcl, mr_ucl = mr_ucl, mr_lcl = mr_lcl, note = paste(notes, collapse = "; "))
+       note = paste(notes, collapse = "; "))
 }
 
 # ---------------------------------------------------------------- 5b. tier 2: c chart, X-bar/R, capability
@@ -1035,37 +933,4 @@ rebalance_plan <- function(state, stations, rank = NULL, target_fill = 0.5,
   unmet <- data.frame(station_id = a$station_id[deficit > 0], remaining_deficit = deficit[deficit > 0],
                       stringsAsFactors = FALSE)
   list(moves = moves, excluded = excluded, unmet = unmet)
-}
-
-# ---------------------------------------------------------------- 7. paired difference CI
-
-#' Confidence interval for the mean of paired differences (e.g. unusable minutes saved).
-#' Input : d = one paired difference per seed; conf = family confidence (0.95);
-#'         family_size = number of comparisons in the family (Bonferroni).
-#' Method: per-comparison level = 1 - (1 - conf)/family_size.
-#'         mean +/- t(1 - (1 - level)/2, n - 1) * s / sqrt(n).
-#' Output: one-row data.frame(n, n_missing, mean, sd, se, t, lower, upper, conf_level, note).
-#' NA rules: missing differences are excluded and counted. n < 2 -> the mean is kept;
-#'         sd, se, t and the interval are NA with a note.
-paired_diff_ci <- function(d, conf = 0.95, family_size = 1) {
-  if (!is.numeric(conf) || conf <= 0 || conf >= 1) stop("conf must be between 0 and 1.", call. = FALSE)
-  if (!is.numeric(family_size) || family_size < 1) stop("family_size must be at least 1.", call. = FALSE)
-  n_missing <- sum(is.na(d))
-  d <- d[!is.na(d)]
-  n <- length(d)
-  level <- 1 - (1 - conf) / family_size
-  out <- data.frame(n = n, n_missing = n_missing, mean = if (n >= 1) mean(d) else NA_real_,
-                    sd = NA_real_, se = NA_real_, t = NA_real_, lower = NA_real_,
-                    upper = NA_real_, conf_level = level, note = "")
-  if (n < 2) {
-    out$note <- "n < 2: no interval can be estimated"
-    return(out)
-  }
-  out$sd <- stats::sd(d)
-  out$se <- out$sd / sqrt(n)
-  out$t <- stats::qt(1 - (1 - level) / 2, df = n - 1)
-  out$lower <- out$mean - out$t * out$se
-  out$upper <- out$mean + out$t * out$se
-  if (out$sd == 0) out$note <- "all differences are identical: the interval has zero width"
-  out
 }

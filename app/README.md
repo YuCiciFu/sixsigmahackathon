@@ -29,14 +29,12 @@ The GitHub Actions workflow `.github/workflows/deploy-shiny-r.yml` redeploys on 
 
 | File | Contents |
 |---|---|
-| `app.R` | UI (7 tabs, sidebar) and `server`; sources the files below |
-| `qc.R` | loader and validator, station-minute grid, all control charts, capability, rebalancing plan, paired intervals |
+| `app.R` | UI (6 tabs, sidebar) and `server`; sources the files below |
+| `qc.R` | loader and validator, station-minute grid, p, c and X-bar/R charts, capability, rebalancing plan |
 | `prep.R` | data shaping and display tables (no statistics) |
 | `plots.R` | ggplot2 drawing helpers (no statistics) |
-| `survival.R` | Kaplan-Meier |
-| `sim.R` | demand estimate, seeded policy simulation, policy comparison |
+| `sim.R` | demand rates from earlier weekdays and van parameters, shared by the forecast |
 | `forecast.R` | current-state risk forecast (Poisson, day bootstrap) |
-| `reliability.R` | empirical availability and reliability |
 | `faulttree.R` | failure classification and fault-tree numbers |
 | `tasks.R` | simulated task statuses (session only) |
 | `data/` | bundled scenario copies (`*.csv.gz`) |
@@ -59,9 +57,7 @@ headers; only the functions that carry a statistic or a rule are listed.
 | `build_grid(status, stations, date, ...)` | cleaned tables -> one row per station x minute | latest snapshot at or before the minute; older than `stale_limit` -> unknown (state NA) |
 | `unusable_summary(grid)` | grid -> per-station minute counts | rent/return/either-unusable and early-warning minutes, coverage = known/(known+unknown) |
 | `window_summary(known, unknown, either_min, ...)` | counts per window -> coverage and `included` | included when coverage >= `min_coverage` |
-| `p_chart(failures, n, baseline)` | counts -> limits and signals | p-bar +/- 3 sqrt(p-bar(1-p-bar)/n_i), capped to [0,1]; rules 1 and 4; NA limits if p-bar is 0 or 1 or fewer than 2 baseline subgroups |
-| `p_dispersion(failures, n)` | baseline counts -> Pearson X2/df, p-value, warning | warning when ratio > 1.5; NA if fewer than 2 subgroups or p-bar is 0 or 1 |
-| `imr_chart(x, baseline)` | values -> I and MR limits | sigma-hat = MR-bar/1.128; MR UCL = 3.267 MR-bar; NA limits if MR-bar = 0 or fewer than 2 baseline points |
+| `p_chart(failures, n, baseline)` | counts -> limits and signals | p-bar +/- 3 sqrt(p-bar(1-p-bar)/n_i), capped to [0,1]; rules 1 and 4; NA limits if p-bar is 0 or 1 or fewer than 2 baseline subgroups; assumes binomial attempts (independent, same failure probability within a window) |
 | `count_onsets(grid, station_ids)` | grid -> number | usable minute followed by unusable minute, both known; not across unknown gaps |
 | `c_chart(counts, baseline)` | counts -> limits | c-bar +/- 3 sqrt(c-bar), LCL >= 0; NA if c-bar = 0 or fewer than 2 windows |
 | `c_dispersion(counts)` | counts -> variance/mean | warning when > 1.5; NA if mean 0 or fewer than 2 windows |
@@ -71,7 +67,6 @@ headers; only the functions that carry a statistic or a rule are listed.
 | `normality_check(x)` | numbers -> Shapiro-Wilk W, p | NA unless 3 <= n <= 5000 and not all equal |
 | `haversine_km(lat1, lon1, lat2, lon2)` | degrees -> km | great-circle distance |
 | `rebalance_plan(state, stations, rank, ...)` | latest state -> list(moves, excluded, unmet) | greedy heuristic; target = round(target_fill x capacity); quantity = min(source surplus, destination deficit, free docks, van capacity); closed stations are excluded with a recommendation |
-| `paired_diff_ci(d, conf, family_size)` | paired differences -> mean and t interval | level 1 - (1-conf)/family_size (Bonferroni); n < 2 -> mean kept, interval NA |
 
 ### prep.R (shaping and display, no statistics)
 
@@ -85,25 +80,14 @@ headers; only the functions that carry a statistic or a rule are listed.
 | `builtin_scenarios`, `default_scenario_path` | locate the bundled `app/data/*.csv.gz` scenarios |
 | `table_health`, `issue_summary`, `issue_detail` | data-issue messages |
 | `c_chart_table`, `xbar_r_table`, `capability_table` | tables for the Quality tab |
-| `paired_table_display`, `policy_summary_display` | tables for Improvement |
-| `km_*`, `forecast_*`, `reliability_display`, `fault_*_display`, `tasks_display` | text and tables for the History, Now, reliability, Diagnosis and task views |
+| `history_info` | how many earlier weekdays the chosen date has (for the forecast's date hint) |
+| `forecast_*`, `fault_*_display`, `tasks_display` | text and tables for the Forecast, Diagnosis and task views |
 
 ### plots.R (drawing only)
 
-`plot_trend`, `plot_heatmap`, `plot_pareto`, `plot_p`, `plot_i`, `plot_mr`, `plot_c`, `plot_xbar`,
-`plot_r`, `plot_response_hist`, `plot_km`, `plot_forecast_risk`, `plot_fault_tree`,
-`plot_paired_diff`, `plot_paired_diffs`. Each takes already computed numbers and returns a ggplot.
-
-### survival.R
-
-| Function | Input -> output | Statistic and NA rules |
-|---|---|---|
-| `station_day_obs(grid, failure)` | one day's grid -> time to first failure, event/censored | origin 07:00 at a station usable then; censored at 10:00 or at an unknown gap; others excluded and listed |
-| `km_fit(time, event, conf)` | times -> Kaplan-Meier table | Greenwood variance; interval NA before the first failure and where S = 0 |
-| `km_at(fit, t)` | curve at times t | NA with reason beyond the last observed time while S > 0 |
-| `km_rmst(fit, tau)` | curve -> restricted mean (minutes) | NA beyond the last time if the curve has not reached 0 |
-| `km_summary(time, event, ...)` | -> F(10/20/30) = 1 - S, RMST, MTTF | MTTF only if the curve reaches 0 |
-| `km_history(grids, dates, failure, ...)` | per-day grids -> pooled observations and summary | station-days treated as independent |
+`plot_trend`, `plot_heatmap`, `plot_pareto`, `plot_p`, `plot_c`, `plot_xbar`, `plot_r`,
+`plot_response_hist`, `plot_forecast_risk`, `plot_fault_tree`. Each takes already computed numbers
+and returns a ggplot.
 
 ### forecast.R
 
@@ -120,24 +104,10 @@ headers; only the functions that carry a statistic or a rule are listed.
 
 | Function | Input -> output | Statistic and NA rules |
 |---|---|---|
-| `sim_params(...)` | -> parameter list | vans 2, capacity 12, target fill 0.5, detour 1.3, speed 20 km/h, stop 2 min, 0.1 min/bike, risk threshold 0.5 (all demo assumptions) |
-| `sim_world(state0, stations)` | 07:00 state -> world | flags stay at their 07:00 values |
+| `sim_params(detour, speed_kmh)` | -> parameter list | detour 1.3, speed 20 km/h (demo assumptions; used for vans on the way) |
+| `sim_world(state0, stations)` | start state -> world | flags stay at their starting values |
 | `estimate_demand(attempts, grids, source_days, station_ids)` | -> rates per station x type x bin | attempts / known minutes; a bin with no known minute uses the station's pooled rate |
-| `make_demand_stream(lambda, station_ids, seed)` | -> rider events for one seed | Poisson counts; same stream for every policy |
-| `van_pickup_amount`, `van_dropoff_amount` | -> bikes moved | pickup min(planned, bikes there, van free); drop-off min(load, free docks) |
-| `predictive_risk_table(world, lambda)`, `predictive_risk(tab, minute, bikes)` | -> exact 30-minute risk per station | Markov chain, no random numbers |
-| `run_policy(world, stream, policy, params, ...)` | -> metrics for one run | policies none, reactive, predictive; primary metric = either-unusable station-minutes; bikes are conserved at every event (checked) |
-| `recovery_episodes(unusable)` | -> recovery durations | open episodes at 10:00 are censored, counted not averaged |
-| `paired_table(diffs)`, `paired_tables(...)` | per-seed differences -> intervals | primary: Bonferroni 98.333% t interval (family of 3); others exploratory, unadjusted 95%; n < 2 -> interval NA |
-| `compare_policies(sc, grids, date, dates, n_seeds, base_seed, params)` | scenario -> per-seed results, summary, paired table | true demand = that morning's own rates; predictive policy sees only earlier weekdays; `ok = FALSE` with a reason if there is no earlier weekday |
-
-### reliability.R
-
-| Function | Input -> output | Statistic and NA rules |
-|---|---|---|
-| `reliability_summary(M, structure, k, tau)` | minutes x stations 0/1 matrix -> availability and R(tau) | availability = share of known minutes the condition holds; R(tau) = share of start minutes (m + tau <= window end) holding in every minute of [m, m+tau); unknown minutes drop out; independence value shown only as a contrast |
-| `grid_usable_matrix(grid, station_ids, usable)` | grid -> matrix | unknown minutes stay NA |
-| `reliability_from_grid(grid, ...)`, `reliability_from_grids(grids, ...)` | one or many days -> summary | series (origin rent-usable at m and destination return-usable at m + d), parallel, k-out-of-n; days are separated by NA rows |
+| `demand_lambda(rates)` | bin rates -> per-minute rates | each 15-minute bin rate repeated for its minutes |
 
 ### faulttree.R
 
@@ -160,8 +130,7 @@ headers; only the functions that carry a statistic or a rule are listed.
 ## How `app.R` wires the tabs
 
 `app.R` sources the files above, loads the built-in scenarios once, then builds `nav_panel`s in
-this order: Overview, Stations, Quality, Forecast & Reliability, Diagnosis, Rebalancing,
-Improvement. Inside `server`, reactives read the scenario (upload or built-in), build the day
+this order: Overview, Stations, Quality, Forecast, Diagnosis, Rebalancing. Inside `server`, reactives read the scenario (upload or built-in), build the day
 grids at the chosen `stale_limit`, and each tab calls the functions above and renders the result.
 No formula is written in `app.R`.
 

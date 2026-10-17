@@ -119,22 +119,6 @@ plot_p <- function(res, dates, ylab, title, ooc_label = "out of control", ok_lab
                dates, ylab, title, ooc_label = ooc_label, ok_label = ok_label)
 }
 
-# I chart (qc.R imr_chart result) -> plot
-plot_i <- function(res, dates, ylab, title) {
-  d <- res$data
-  plot_control(data.frame(x = d$subgroup, y = d$x, center = d$center, ucl = d$ucl,
-                          lcl = d$lcl, ooc = d$out_of_control), dates, ylab, title)
-}
-
-# Moving-range chart (qc.R imr_chart result) -> plot
-plot_mr <- function(res, dates, title) {
-  d <- res$data
-  mr_ooc <- ifelse(is.na(d$mr_signal), NA, d$mr_signal)
-  plot_control(data.frame(x = d$subgroup, y = d$mr, center = res$mr_bar, ucl = d$mr_ucl,
-                          lcl = NA_real_, ooc = mr_ooc),
-               dates, "moving range (percentage points)", title)
-}
-
 # c chart (qc.R c_chart result) -> plot
 plot_c <- function(res, dates, ylab, title, ooc_label = "out of control", ok_label = "in control") {
   d <- res$data
@@ -173,74 +157,6 @@ plot_response_hist <- function(x, xbarbar = NA_real_, usl = NA_real_, lsl = NA_r
   specs <- c(usl, lsl)
   specs <- specs[!is.na(specs)]
   if (length(specs) > 0) g <- g + ggplot2::geom_vline(xintercept = specs, colour = "red", linetype = "dashed")
-  g
-}
-
-# Kaplan-Meier step curve S(t) with its 95% interval band and censoring ticks (+).
-# d = prep.R km_plot_data(): d$curve (t, surv, lo, hi on whole minutes), d$ticks (t, surv).
-# Whole-minute steps: each value holds on [m, m+1), so the curve and band are drawn as exact steps.
-plot_km <- function(d, title, caption) {
-  cv <- d$curve
-  steps <- data.frame(t = c(rbind(cv$t, cv$t + 1)), surv = rep(cv$surv, each = 2),
-                      lo = rep(cv$lo, each = 2), hi = rep(cv$hi, each = 2))
-  g <- ggplot2::ggplot(steps, ggplot2::aes(t, surv)) +
-    ggplot2::geom_ribbon(ggplot2::aes(ymin = lo, ymax = hi), fill = "#4575b4", alpha = 0.2, na.rm = TRUE) +
-    ggplot2::geom_line(colour = "#08519c", linewidth = 0.8, na.rm = TRUE) +
-    ggplot2::scale_y_continuous(limits = c(0, 1)) +
-    ggplot2::labs(title = title, x = "minutes after 07:00 (station usable at 07:00)",
-                  y = "S(t): share of station-days with no failure yet", caption = caption) +
-    ggplot2::theme_minimal()
-  if (nrow(d$ticks) > 0) {
-    g <- g + ggplot2::geom_point(data = d$ticks, ggplot2::aes(t, surv), shape = 3, size = 2.5,
-                                 colour = "black", inherit.aes = FALSE)
-  }
-  g
-}
-
-# Per-seed paired differences for the primary metric: one point per seed, the mean (green) and its
-# confidence interval (dashed blue band edges; NA = not drawn), zero = no difference.
-# d = metric(none) - metric(reactive), so points above 0 favour the reactive policy.
-# ci_low / ci_high / mean_d come from sim.R paired_table; this function only draws.
-plot_paired_diff <- function(d, seeds, mean_d, ci_low, ci_high, ci_text, ylab, title) {
-  df <- data.frame(seed = seeds, d = d)
-  g <- ggplot2::ggplot(df, ggplot2::aes(seed, d)) +
-    ggplot2::geom_hline(yintercept = 0, colour = "grey40") +
-    ggplot2::geom_point(size = 2.5, colour = "#2166ac", na.rm = TRUE) +
-    ggplot2::labs(title = title, x = "seed", y = ylab, caption = ci_text) +
-    ggplot2::theme_minimal()
-  if (!is.na(mean_d)) g <- g + ggplot2::geom_hline(yintercept = mean_d, colour = "darkgreen")
-  if (!is.na(ci_low) && !is.na(ci_high)) {
-    g <- g + ggplot2::geom_hline(yintercept = c(ci_low, ci_high), colour = "#2166ac", linetype = "dashed")
-  }
-  g
-}
-
-# The three pairwise primary differences side by side (H-15): one panel per pair, one point per seed,
-# the mean (green) and the Bonferroni interval (dashed blue; NA = not drawn), zero = no difference.
-# d = metric(first policy) - metric(second policy), so points above 0 favour the SECOND policy.
-# diffs = list named by pair of per-seed differences; rows = the primary rows of sim.R paired_tables
-# (columns pair, mean_d, ci_low, ci_high). This function only draws.
-plot_paired_diffs <- function(diffs, seeds, rows, ylab, title, caption) {
-  pairs <- names(diffs)
-  df <- data.frame(seed = rep(seeds, length(pairs)), d = unlist(diffs, use.names = FALSE),
-                   pair = factor(rep(pairs, each = length(seeds)), levels = pairs))
-  rows <- rows[match(pairs, rows$pair), ]
-  rows$pair <- factor(rows$pair, levels = pairs)
-  g <- ggplot2::ggplot(df, ggplot2::aes(seed, d)) +
-    ggplot2::geom_hline(yintercept = 0, colour = "grey40") +
-    ggplot2::geom_point(size = 2, colour = "#2166ac", na.rm = TRUE) +
-    ggplot2::facet_wrap(~pair, nrow = 1) +
-    ggplot2::labs(title = title, x = "seed", y = ylab, caption = caption) +
-    ggplot2::theme_minimal()
-  has_mean <- !is.na(rows$mean_d)
-  if (any(has_mean)) {
-    g <- g + ggplot2::geom_hline(ggplot2::aes(yintercept = mean_d), data = rows[has_mean, ], colour = "darkgreen")
-  }
-  has_ci <- !is.na(rows$ci_low) & !is.na(rows$ci_high)
-  if (any(has_ci)) {
-    g <- g + ggplot2::geom_hline(ggplot2::aes(yintercept = ci_low), data = rows[has_ci, ], colour = "#2166ac", linetype = "dashed") +
-      ggplot2::geom_hline(ggplot2::aes(yintercept = ci_high), data = rows[has_ci, ], colour = "#2166ac", linetype = "dashed")
-  }
   g
 }
 

@@ -25,12 +25,12 @@ cannot measure costs points.
 
 | Input | Type and units | Where the user gets it |
 |---|---|---|
-| One scenario CSV with four record types (stations, minute status snapshots, rent and return attempts, van tasks) plus policy parameters; full schema in [`docs/methods.md`](docs/methods.md) sections 3 and 7 | IDs and names as text; coordinates in decimal degrees; capacity, bikes, docks and quantities as counts; ISO 8601 times with offset; TRUE/FALSE flags | the station list and status feed (GBFS-like), kiosk and app attempt logs, the dispatch task log; simulated in this version |
+| One scenario CSV with four record types (stations, minute status snapshots, rent and return attempts, van tasks) plus demo parameters; full schema in [`docs/methods.md`](docs/methods.md) sections 3 and 7 | IDs and names as text; coordinates in decimal degrees; capacity, bikes, docks and quantities as counts; ISO 8601 times with offset; TRUE/FALSE flags | the station list and status feed (GBFS-like), kiosk and app attempt logs, the dispatch task log; simulated in this version |
 
 ## 4. The statistics, and why (rubric: valid QC analysis 25)
 Say the method in words before any code exists. Load the `stats-first-steering` skill first.
-- **Method:** tier 1: rent- and return-failure p charts, an I-MR chart of the rush-hour unusable share, an unusable-minute ranking, a greedy rebalancing plan and a paired-seed policy simulation; tiers 2-3: c chart, X-bar/R with Cpu, Kaplan-Meier, a forward risk forecast, empirical availability and reliability, and fault trees (formulas in [`docs/methods.md`](docs/methods.md) 4.1-4.4). Example: "X-bar and R chart, subgroups of 5, limits from the average range"
-- **Why it fits the use case:** rent and return attempts are pass/fail (p charts), rush-hour unusable share is one number per weekday (I-MR), and a rebalancing policy must be judged against the same simulated demand (paired seeds); the full reasoning is in [`docs/methods.md`](docs/methods.md) 4.2.
+- **Method:** tier 1: rent- and return-failure p charts, observed unusable share and coverage, an unusable-minute ranking and a greedy rebalancing plan; tiers 2-3: c chart, X-bar/R with Cpu/Cp/Cpk, a forward risk forecast with a day bootstrap, and fault trees (formulas in [`docs/methods.md`](docs/methods.md) 4.1-4.4). Example: "X-bar and R chart, subgroups of 5, limits from the average range"
+- **Why it fits the use case:** rent and return attempts are pass/fail (p charts), failure onsets are counts per weekday window (c chart), van response times come in subgroups of 3 (X-bar/R), and a dispatcher needs to know which stations are about to fail (forecast); the full reasoning is in [`docs/methods.md`](docs/methods.md) 4.2.
 - **Assumptions and how the tool checks them:** limits come from a stated baseline; Western Electric rules 1 and 4; a fixed station set with at least 95% coverage for SPC; a dispersion check for Poisson counts; stability and normality before Cpu; NA with a reason when a value cannot be estimated (full list in [`docs/methods.md`](docs/methods.md) 4.1-4.2). Example: "normality: histogram plus Shapiro-Wilk in the demo"
 - **Known-answer check:** for example KA-2: 5 rush windows of 100 rent attempts with 4, 6, 5, 3, 7 failures give p-bar = 0.050, UCL = 0.115, LCL = 0; every hand-worked check, KA-1 to KA-11, is in [`docs/methods.md`](docs/methods.md) 4.2.
 
@@ -53,7 +53,7 @@ Fixed for every team:
 - A small tool that runs beats a large tool that does not.
 
 ## 6. Outputs
-- **What the user sees:** a tabbed Shiny page (Overview, Stations, Quality, Forecast & Reliability, Diagnosis, Rebalancing, Improvement); every chart or number shows its unit, its sample size or coverage, and a one-line "how to read this" (tab contents in [`docs/methods.md`](docs/methods.md) section 6).
+- **What the user sees:** a tabbed Shiny page (Overview, Stations, Quality, Forecast, Diagnosis, Rebalancing); every chart or number shows its unit, its sample size or coverage, and a one-line "how to read this" (tab contents in [`docs/methods.md`](docs/methods.md) section 6).
   Example: "a control chart with out-of-control points in red, plus 'stop the line: yes/no'"
 
 ## 7. Test datasets and codebook (rubric: demo 10, datasets 5, codebook 5)

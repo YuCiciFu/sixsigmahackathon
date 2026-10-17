@@ -2,8 +2,8 @@
 
 A web dashboard for the **municipal bikeshare dispatcher** who plans the rebalancing vans for the
 weekday morning rush (07:00-10:00 New York time). It shows where and when stations are unusable
-(empty or full), checks with control charts whether service is really getting worse, suggests which
-bikes to move, and measures in a seeded simulation whether moving them helps.
+(empty or full), checks with control charts whether service is really getting worse, forecasts which
+stations are about to become unusable, and suggests which bikes to move.
 
 **Live app (public, no login): https://connect.systems-apps.com/content/d242b1d3-484c-484f-a581-8e4a67845434/**
 
@@ -47,11 +47,10 @@ A guided walkthrough on the three test datasets, with every number it quotes, is
 |---|---|---|
 | Overview | Station map by state at the chosen minute, KPIs, station ranking, data issues | Unusable minutes per known minute (rent-unusable: 0 bikes or renting off; return-unusable: 0 docks or returning off); early warning is ranking only, never a failure |
 | Stations | Inventory trend, unusable minutes, hour-by-station heatmap, Pareto | Same station-minute grid |
-| Quality | p charts (rent and return failures), I-MR chart of the unusable share, c chart of failure onsets, X-bar/R chart of van response time with Cpu | p chart limits p-bar +/- 3 sqrt(p-bar(1-p-bar)/n_i) with a Pearson overdispersion check; I-MR with sigma-hat = MR-bar/1.128; c chart c-bar +/- 3 sqrt(c-bar); X-bar/R with constants A2, D3, D4; Cpu = (USL - X-double-bar)/(3 R-bar/d2), computed only when you enter a USL and the chart is in control. Signals: Western Electric rules 1 and 4 |
-| Forecast & Reliability | **History:** Kaplan-Meier time to first failure. **Now:** risk that a station becomes unusable within 10, 20, 30 minutes. Empirical availability and reliability | Kaplan-Meier with Greenwood intervals, RMST, F(t) = 1 - S(t). Forecast: Poisson demand per station and 15-minute bin, step 5a (fixed rates) plus an optional day bootstrap, with three uncertainty sources shown separately. Availability and R(tau): series, parallel and k-out-of-n from simultaneous snapshots |
+| Quality | p charts (rent and return failures), c chart of failure onsets, X-bar/R chart of van response time with Cp, Cpk and Cpu | p chart limits p-bar +/- 3 sqrt(p-bar(1-p-bar)/n_i) under a binomial assumption; c chart c-bar +/- 3 sqrt(c-bar) with a variance/mean check of the Poisson assumption; X-bar/R with constants A2, D3, D4; Cpu = (USL - X-double-bar)/(3 R-bar/d2) (Cp and Cpk also need an LSL), computed only when you enter a USL and the chart is in control. Signals: Western Electric rules 1 and 4 |
+| Forecast | **Now:** risk that a station becomes unusable now or within 10, 20, 30 minutes | Poisson demand per station and 15-minute bin from the earlier weekdays, step 5a (fixed rates) plus an optional day bootstrap, with three uncertainty sources shown separately |
 | Diagnosis | Qualitative fault tree for rent failure and return failure, cause shares, actions | Shares of `failure_reason` codes mapped to rebalancing, maintenance or data check; no probabilities are invented |
 | Rebalancing | Recommended moves (from, to, bikes, estimated distance), and a button that creates simulated tasks you can move through the statuses | Greedy heuristic, not an optimiser. Task statuses live in your browser session only and are lost on reload |
-| Improvement | Compares three policies (none, reactive, predictive) on the same simulated riders | Seeded paired differences in unusable station-minutes. Primary: Bonferroni 98.333% t intervals (3 comparisons, alpha = 0.05/3). Secondary (failed-attempt share, van km, recovery time): exploratory, unadjusted 95% |
 
 Every chart or number shows its unit and its sample size or coverage, plus a one-line "how to read
 this". The full formulas and the hand-worked known answers are in [docs/methods.md](docs/methods.md).
@@ -74,14 +73,14 @@ real feed; change it and read the result accordingly.
 | Detour factor (road km = straight line x factor) | 1.3 | yes |
 | Minimum coverage for SPC (known / all minutes) | 0.95 | yes |
 | Baseline share (first part of the weekdays sets the limits) | 0.5 | yes |
-| USL, LSL for Cpu (minutes) | blank (no USL, no Cpu) | you enter it |
+| USL, LSL for Cpu / Cp / Cpk (minutes) | blank (no USL, no index) | you enter it |
 | Forecast: paths R / seed | 2000 / 1 | simulation settings |
+| Forecast: van speed (vans on the way at t0) | 20 km/h | yes |
 | Forecast bootstrap: sets B / paths per set R_b | 200 / 200 (off until ticked) | simulation settings |
-| Improvement: seeds / base seed | 30 / 1 | simulation settings |
-| Improvement: vans / speed / stop time / time per bike | 2 / 20 km/h / 2 min / 0.1 min | yes |
-| Improvement: predictive threshold (30-minute risk) | 0.5 | yes (heuristic) |
-| Reliability horizon tau (minutes) | 10, 20 or 30; default 30 | you choose |
-| Reliability: series trip time d | 15 minutes | yes |
+
+The Forecast tab runs only when you click **Run forecast**; every other setting takes effect at once.
+It needs at least one weekday before the chosen date (no look-ahead): on the first date of a file it
+says so and offers buttons for the first date with history and the latest date.
 
 ## Data
 
@@ -103,23 +102,20 @@ Read these before trusting any number.
 
 - **Simulated data.** Charts show behaviour of the method, not of a real system. The planted shift
   is engineered.
-- **p charts and overdispersion.** The limits assume independent attempts. The tool computes a
-  Pearson dispersion ratio and warns above 1.5; then the limits are too narrow and a point beyond
-  them is a prompt to investigate, not a confirmed special cause.
-- **c chart** counts failure onsets, not how long a failure lasts.
+- **p charts (binomial assumption).** The limits assume that within a window every attempt fails
+  independently with the same probability. Attempts at the same station and time may not be
+  independent; then the limits are too narrow and a point beyond them is a prompt to investigate,
+  not a confirmed special cause. The tool does not test this assumption.
+- **c chart** counts failure onsets, not how long a failure lasts. A variance/mean check warns
+  above 1.5 when the counts vary more than a Poisson model allows.
 - **Cpu on the built-in data** only demonstrates the arithmetic. The tool never invents a spec
   limit; no USL means no Cpu. It needs an in-control, roughly normal process.
-- **Kaplan-Meier.** Greenwood intervals treat station-days as independent; nearby stations may be
-  correlated, so the intervals may be too narrow.
 - **Forecast.** A Poisson model: rates constant within 15-minute bins, stations independent, riders
   who gave up without trying are not in the log. The event includes the state at t0 (a station
   already unusable has probability 1). The standard error is rough near 0 and 1. The bootstrap
   range is partly inflated by simulation noise. Only earlier weekdays are used (no look-ahead).
-- **Improvement.** The "true demand" replays that morning's own observed rates, a noisy estimate.
-  The predictive policy knows only earlier weekdays. The intervals cover simulation seeds only,
-  not real-world uncertainty. On the built-in data every primary interval contains 0, which means
-  **no difference detected, not that the policies are equivalent**.
-- **Availability and R(tau)** use observed joint minutes and may be optimistic with patchy data.
+- **Rebalancing is not evaluated.** The tool suggests moves but does not claim they reduce unusable
+  minutes; no policy comparison is included.
 - **Fault tree.** The rule that reclassifies a "no_bike" failure when the status shows bikes never
   fires on the built-in data.
 - **No observed failures does not mean zero risk.** Values that cannot be estimated show `NA` with
@@ -127,12 +123,14 @@ Read these before trusting any number.
 
 ## How it was checked
 
-- testthat suites in [tests/](tests/) reproduce the hand-worked known answers KA-1 to KA-11 from
+- testthat suites in [tests/](tests/) reproduce the hand-worked known answers of the features kept
+  (KA-1, KA-1b, KA-2 to KA-2c, KA-4, KA-6, KA-7, KA-8b to KA-8d, KA-10, KA-11) from
   [docs/methods.md](docs/methods.md) section 4.2, plus degenerate cases (constant data, n = 1,
-  missing values). Last full run: 1236 passing, 0 failing.
+  missing values). Last full run: 743 passing, 0 failing.
 - Independent statistics reviews of each statistic, Playwright checks of the screens, and a
   logged-out check of the live URL (HTTP 200).
-- The `survival` package is used only inside the tests, as a cross-check of the Kaplan-Meier code.
+- Scope: the I-MR chart, the p chart's dispersion test, Kaplan-Meier, availability/R(tau) and the
+  three-policy comparison were removed on 2026-10-17 at the team's request (task H-19); their earlier checks are in git history and [CONTRACT.yaml](CONTRACT.yaml).
 
 ## Project status (what is NOT done)
 
@@ -168,8 +166,8 @@ Event rules and the judging rubric stay in [docs/criteria.md](docs/criteria.md) 
 ## Credits
 
 - Course textbook: https://timothyfraser.com/sigma/
-- SPC constants (A2, D3, D4, d2, 1.128, 3.267) from Montgomery, *Introduction to Statistical
+- SPC constants (A2, D3, D4, d2) from Montgomery, *Introduction to Statistical
   Quality Control*, as cited in the comments of [app/qc.R](app/qc.R).
 - Data layout inspired by GBFS (https://github.com/MobilityData/gbfs); it is an internal format,
   not a native GBFS feed ([data/README.md](data/README.md)).
-- R packages: shiny, bslib, ggplot2, leaflet; testthat and survival for tests; rsconnect for deploy.
+- R packages: shiny, bslib, ggplot2, leaflet; testthat for tests; rsconnect for deploy.
