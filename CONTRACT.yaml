@@ -358,3 +358,26 @@ tasks:
       Playwright pass over every remaining tab, an upload and a forecast run shows no error;
       the manifest is regenerated and the app starts from its files alone.
     result: "done (first part committed in bdcbeea, extension 2026-10-17): test_dir 458 pass, 0 fail (also removed test-faulttree, test-tasks, test-rebalance and the Pareto, rebalancing and as_whole_numbers tests in test-prep; the edge_case integration test keeps every KA-1b grid check); the DoD git grep finds none of the removed functions in app/ or tests/; Playwright on the manifest-only bundle (port 5776): 4 tabs (Overview, Stations, Quality, Forecast), no output errors, all 6 Quality plots, KPIs 29.9% / 820/3025 / 25/1484, forecast date buttons work, forecast 25/25 at 2026-10-05 07:30 (S008 0.054), edge_case.csv upload with 3 rejected rows and S002 grey (unknown / stale) at 07:12; manifest 9 files, 68 packages, MD5s match; demo script reprints the kept numbers unchanged; data/ and demos/ untouched (data/README.md still mentions the I-MR in its generator note); side effect stated in the docs: without the dispersion check the baseline p charts mark 7 of 20 days OUT OF CONTROL; no teammate review of the diff recorded; not merged or deployed"
+
+  # H-20: the data author authorised this wording update in chat on 2026-10-17 (data/ belongs to H-02).
+
+  - id: H-20
+    title: Codebook wording - align data/README.md with the final four-tab tool
+    points: "protects 5 - Tool Documentation: codebook and README for the data"
+    status: done
+    owner: "YuCiciFu + Claude"
+    started_at: "2026-10-17 12:21"
+    owns: ["data/README.md", "CONTRACT.yaml"]
+    notes: >
+      Authorised in chat by the data author. Change only explanatory text in data/README.md:
+      remove or reword statements about features removed in H-19 (I-MR chart, policy
+      simulator) so the codebook matches the four-tab tool (Overview, Stations, Quality,
+      Forecast). Do not change any CSV, data/generate_data.R, data/check_scenarios.py, field
+      rules or the meaning of the data; keep historical statements true (say what the check
+      script still does, rather than deleting it).
+    definition_of_done: >
+      git diff --stat shows only data/README.md and CONTRACT.yaml; git diff of data/README.md
+      leaves the field table unchanged; python data/check_scenarios.py still passes;
+      Rscript -e "testthat::test_dir('tests')" still passes (the bundled-copy test compares
+      app/data with data/*.csv).
+    result: "done: only data/README.md and CONTRACT.yaml changed; field table unchanged (0 table lines in the diff); three sentences reworded: app/sim.R now holds only the forecast demand model (policy simulator removed in H-19); check_scenarios.py still checks an I-MR signal on the data but the dashboard has no I-MR chart; the validation note keeps the script results (upper-limit signals: return p weekdays 9-20, I-MR 11-20) and adds that the dashboard return p chart also marks weekdays 1 and 8 below the lower limit; python data/check_scenarios.py: All independent H-02 checks PASS; test_dir 458 pass, 0 fail; no CSV, generator or check script changed"
