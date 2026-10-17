@@ -73,7 +73,7 @@ baseline p charts show a clean in-control process.
 ### 1.3 Quality, c chart
 
 Same tab, "c chart". All 20 windows have enough coverage (fixed set of 25 stations). Counts of anomaly
-onsets per window: centre **157.9**, UCL **195.597**, LCL **120.203**. All 20 windows are "within
+onsets per window: centre **157.90**, UCL **195.60**, LCL **120.20** (the page rounds to 2 decimals; the script prints 195.597 and 120.203). All 20 windows are "within
 limits" (range 133 to 188). Dispersion box: variance 300.77 / mean 157.90 = 1.90, a **warning**
 (clusters of events: limits likely too narrow).
 
@@ -84,7 +84,7 @@ they lasted. The Overview and Stations tabs show the level of unusable time.
 
 Same tab, "X-bar and R chart" (van response time, minutes from assigned to arrived). 20 subgroups
 of the first 3 completed tasks per window; the first three subgroups are 9, 10, 11 minutes (mean 10,
-range 2). X-bar limits 7.954 to 12.046; R limits 0 to 5.148; all in control.
+range 2). X-bar limits 7.95 to 12.05; R limits 0 to 5.15; all in control (the script prints 7.954, 12.046 and 5.148).
 
 Then, in "Capability of response time", type **12** into **Upper spec limit USL**:
 
@@ -92,7 +92,7 @@ Then, in "Capability of response time", type **12** into **Upper spec limit USL*
 |---|---|
 | sigma-hat = R-bar/d2 | 1.181 min |
 | X-double-bar | 10.000 min |
-| **Cpu** | **0.564** |
+| **Cpu** | **0.56** on the page (0.564 to 3 decimals) |
 | Cpl, Cp, Cpk | not computed: "no LSL entered: Cpl, Cp and Cpk need both limits" |
 
 The normality box warns (Shapiro-Wilk W = 0.793, p = 9.19e-08 on 60 response times).
